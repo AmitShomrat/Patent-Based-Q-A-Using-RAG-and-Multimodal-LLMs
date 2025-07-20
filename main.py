@@ -251,6 +251,184 @@ def load_questions(questions_file="questions.txt"):
     return questions
 
 
+def retrieve_relevant_chunks(question, client, model, collection_name="patent_chunks", top_k=3):
+    """
+    Retrieve top-k relevant text chunks for a question using vector similarity.
+    
+    Args:
+        question (str): The question to search for
+        client: Qdrant client
+        model: SentenceTransformer model
+        collection_name (str): Name of Qdrant collection
+        top_k (int): Number of chunks to retrieve
+        
+    Returns:
+        list: List of relevant chunks with metadata
+    """
+    # Convert question to embedding
+    question_embedding = model.encode([question])
+    
+    # Search for similar chunks in Qdrant
+    search_results = client.search(
+        collection_name=collection_name,
+        query_vector=question_embedding[0].tolist(),
+        limit=top_k
+    )
+    
+    # Extract chunks with similarity scores
+    relevant_chunks = []
+    for result in search_results:
+        relevant_chunks.append({
+            'content': result.payload['content'],
+            'page': result.payload['page'],
+            'chunk_index': result.payload['chunk_index'],
+            'similarity': result.score
+        })
+    
+    return relevant_chunks
+
+
+def find_nearby_images(relevant_pages, all_chunks, max_images=2):
+    """
+    Find up to 2 nearby image chunks from the same or adjacent pages.
+    
+    Args:
+        relevant_pages (list): List of page numbers from relevant text chunks
+        all_chunks (list): All chunks (text and image)
+        max_images (int): Maximum number of images to return
+        
+    Returns:
+        list: List of image paths
+    """
+    if not relevant_pages:
+        return []
+    
+    # Get all unique pages + adjacent pages
+    target_pages = set()
+    for page in relevant_pages:
+        target_pages.add(page)           # Same page
+        target_pages.add(page - 1)       # Previous page
+        target_pages.add(page + 1)       # Next page
+    
+    # Find image chunks from target pages
+    image_chunks = []
+    for chunk in all_chunks:
+        if (chunk['type'] == 'image' and 
+            chunk['page'] in target_pages):
+            image_chunks.append({
+                'path': chunk['content'],
+                'page': chunk['page']
+            })
+    
+    # Sort by page number for consistent ordering
+    image_chunks.sort(key=lambda x: x['page'])
+    
+    # Return up to max_images
+    selected_images = image_chunks[:max_images]
+    return [img['path'] for img in selected_images]
+
+
+def construct_rag_prompt(question, relevant_chunks, image_paths, max_context_bytes=2000):
+    """
+    Construct RAG prompt with question, context, and images.
+    
+    Args:
+        question (str): The question
+        relevant_chunks (list): Retrieved text chunks
+        image_paths (list): Paths to relevant images
+        max_context_bytes (int): Maximum context length in bytes
+        
+    Returns:
+        str: Formatted prompt
+    """
+    # Build context from relevant chunks
+    context_parts = []
+    total_bytes = 0
+    
+    for chunk in relevant_chunks:
+        chunk_text = chunk['content']
+        chunk_bytes = len(chunk_text.encode('utf-8'))
+        
+        # Check if adding this chunk would exceed limit
+        if total_bytes + chunk_bytes <= max_context_bytes:
+            context_parts.append(f"[Page {chunk['page']}] {chunk_text}")
+            total_bytes += chunk_bytes
+        else:
+            # Add partial chunk to reach exactly max_context_bytes
+            remaining_bytes = max_context_bytes - total_bytes
+            if remaining_bytes > 50:  # Only add if meaningful amount remaining
+                partial_text = chunk_text.encode('utf-8')[:remaining_bytes].decode('utf-8', errors='ignore')
+                context_parts.append(f"[Page {chunk['page']}] {partial_text}")
+            break
+    
+    context = "\n\n".join(context_parts)
+    
+    # Format images (up to 2)
+    image_list = ", ".join(image_paths[:2]) if image_paths else "None"
+    
+    # Construct final prompt
+    prompt = f"""Question: {question}
+
+Context:
+{context}
+
+Images:
+{image_list}"""
+    
+    return prompt
+
+
+def process_questions_with_rag(questions, chunks, client, model):
+    """
+    Process all questions using RAG pipeline.
+    
+    Args:
+        questions (list): List of questions
+        chunks (list): All chunks (text and image)
+        client: Qdrant client
+        model: SentenceTransformer model
+        
+    Returns:
+        list: List of constructed prompts
+    """
+    print(f"\n=== Step 4: RAG Prompt Construction ===")
+    print(f"Processing {len(questions)} questions...")
+    
+    prompts = []
+    
+    for i, question in enumerate(questions, 1):
+        print(f"\n🔍 Processing Question {i}/{len(questions)}: '{question[:50]}...'")
+        
+        # 1. Retrieve top-k relevant text chunks
+        relevant_chunks = retrieve_relevant_chunks(question, client, model, top_k=3)
+        print(f"   Retrieved {len(relevant_chunks)} relevant chunks")
+        
+        # Show similarity scores
+        for j, chunk in enumerate(relevant_chunks):
+            print(f"     Chunk {j+1}: Page {chunk['page']}, Similarity = {chunk['similarity']:.3f}")
+        
+        # 2. Find nearby images
+        relevant_pages = [chunk['page'] for chunk in relevant_chunks]
+        image_paths = find_nearby_images(relevant_pages, chunks, max_images=2)
+        print(f"   Found {len(image_paths)} nearby images: {image_paths}")
+        
+        # 3. Construct prompt
+        prompt = construct_rag_prompt(question, relevant_chunks, image_paths)
+        prompts.append({
+            'question': question,
+            'prompt': prompt,
+            'relevant_pages': relevant_pages,
+            'image_paths': image_paths
+        })
+        
+        # Show prompt preview
+        prompt_preview = prompt.replace('\n', ' ')[:150]
+        print(f"   Prompt preview: '{prompt_preview}...'")
+    
+    print(f"\n✅ Constructed {len(prompts)} RAG prompts")
+    return prompts
+
+
 def main():
     """
     Main function to execute the RAG pipeline steps
@@ -292,13 +470,21 @@ def main():
     # === STEP 3: QUESTION INPUT ===
     questions = load_questions()
     
+    # === STEP 4: RAG PROMPT CONSTRUCTION ===
+    if questions:  # Only proceed if we have questions
+        rag_prompts = process_questions_with_rag(questions, chunks, client, model)
+    else:
+        print("⚠️  No questions to process - skipping RAG prompt construction")
+        rag_prompts = []
+    
     print(f"\n=== Pipeline Status ===")
     print(f"✅ Step 1: Patent chunked into {len(chunks)} pieces")
     print(f"✅ Step 2: {len(text_chunks)} text chunks vectorized and stored")
     print(f"✅ Step 3: {len(questions)} questions loaded and ready")
-    print(f"🔄 Next: Step 4 (RAG Prompt Construction), Step 5 (Answer Generation)")
+    print(f"✅ Step 4: {len(rag_prompts)} RAG prompts constructed")
+    print(f"🔄 Next: Step 5 (Answer Generation with LLaVA/LLaMA)")
     
-    return chunks, client, model, questions
+    return chunks, client, model, questions, rag_prompts
     
 
 
