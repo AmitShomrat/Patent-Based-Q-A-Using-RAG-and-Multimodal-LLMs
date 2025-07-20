@@ -1,0 +1,10 @@
+What is the main invention described in this patent?
+Who is the inventor of the PageRank algorithm?
+How does the PageRank algorithm work?
+What is the mathematical formula for PageRank?
+What are the main applications of this method?
+When was this patent filed?
+What problem does this patent solve?
+How are node ranks calculated?
+What is the random surfer model?
+What are the key claims of this patent?
