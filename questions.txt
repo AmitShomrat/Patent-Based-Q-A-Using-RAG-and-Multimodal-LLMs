@@ -1,5 +1,10 @@
-What is the main invention described in this patent?
-Who is the inventor of the PageRank algorithm?
-How does the PageRank algorithm work?
-What is the mathematical formula for PageRank?
-What problem does this patent solve?
+What is the role of the LLM in relation to the semantic search engine as depicted in the system diagram?
+How does the system determine which past conversation snippets to retrieve, and how are they presented to the LLM?
+What specific types of data are used by the conversation analysis module, and how are these represented in the figures?
+How does the figure showing user interfaces relate to the process of generating conversation suggestions in the text?
+What are the functional components that interact between modules 112 and 115, and what is their significance as described in the text?
+According to both the text and the system diagram, how is user feedback incorporated into the iterative refinement of conversation responses?
+How are semantic similarities measured in the architecture, and which part of the diagram illustrates this computation?
+What is the relationship between 'past user intents' and 'recommended replies' in the text, and how is this visualized in the flow diagram?
+How does the patent propose handling ambiguous user inputs, and which elements in the figures support this approach?
+Which figure illustrates the integration of external knowledge bases, and how does the text describe their use in enhancing response accuracy?
