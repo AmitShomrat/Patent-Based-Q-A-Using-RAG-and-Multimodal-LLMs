@@ -671,7 +671,7 @@ def generate_answers(rag_prompts, output_file="answers.txt"):
             'char_count': len(answer)
         })
         
-        print(f"   Answer ({len(answer)} chars): {answer[:100]}...")
+        print(f"   Answer ({len(answer)} chars): {answer}")
     
     # Save answers to file
     try:
@@ -738,41 +738,6 @@ def test_ollama_models():
         print(f"   ❌ Error testing ollama: {e}")
     
     return models
-
-
-def run_step5_only(questions_file="questions.txt", chunks_file="chunks_metadata.json", output_file="answers.txt"):
-    """
-    Run only Step 5 (Answer Generation) using existing data.
-    Useful for testing or re-running just the answer generation.
-    
-    Args:
-        questions_file (str): Path to questions file
-        chunks_file (str): Path to chunks metadata file
-        output_file (str): Path to save answers
-    """
-    print("=== Running Step 5 Only: Answer Generation ===")
-    
-    # Load existing data
-    chunks = load_chunks_metadata(chunks_file)
-    questions = load_questions(questions_file)
-    
-    if not chunks:
-        print("❌ No chunks found. Please run Steps 1-4 first.")
-        return
-    
-    if not questions:
-        print("❌ No questions found.")
-        return
-    
-    # Create vector store (Steps 2-4)
-    client, model = create_vector_store(chunks)
-    rag_prompts = process_questions_with_rag(questions, chunks, client, model)
-    
-    # Generate answers (Step 5)
-    answers = generate_answers(rag_prompts, output_file)
-    
-    print(f"\n✅ Step 5 Complete: {len(answers)} answers generated")
-    return answers
 
 
 def main():
