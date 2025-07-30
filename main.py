@@ -319,14 +319,24 @@ def load_questions(questions_file="questions.txt"):
         return []
     
     # Load questions from file
+    inside_hidden = False
+    count_hidden = 0
     questions = []
     try:
         with open(questions_file, 'r', encoding='utf-8') as f:
             for line_num, line in enumerate(f, 1):
                 question = line.strip()
-                if question:  # Skip empty lines
+                if question == "[[HIDDEN]]":
+                    inside_hidden = True
+                    count_hidden += 1
+                    continue
+                if question == "[[/HIDDEN]]":
+                    inside_hidden = False
+                    count_hidden += 1
+                    continue
+                if not inside_hidden:
                     questions.append(question)
-                    print(f"  Q{line_num}: {question}")
+                    print(f"  Q{line_num - count_hidden}: {question}")
         
         print(f"✅ Loaded {len(questions)} questions from '{questions_file}'")
         
