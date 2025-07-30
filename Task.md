@@ -4,16 +4,6 @@
 Build a Python-based pipeline that analyzes a real-world patent document (including both text and images) and answers questions using Retrieval-Augmented Generation (RAG) powered by **LLaVA** and **LLaMA** via **Ollama**.
 
 ---
-Expand
-message.txt
-10 KB
-﻿
-# ✅ Programming Assignment: Patent-Based Q&A Using RAG and Multimodal LLMs
-
-## 🎯 Objective  
-Build a Python-based pipeline that analyzes a real-world patent document (including both text and images) and answers questions using Retrieval-Augmented Generation (RAG) powered by **LLaVA** and **LLaMA** via **Ollama**.
-
----
 
 ## 📥 Input: Patent Document  
 Manually download a patent PDF from [Google Patents](https://patents.google.com/).  

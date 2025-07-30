@@ -1,3 +1,6 @@
 venv/
-Task.txt
 __pycache__/
+answers.txt
+prompt_llama.txt
+prompt_llava.txt
+test.py
