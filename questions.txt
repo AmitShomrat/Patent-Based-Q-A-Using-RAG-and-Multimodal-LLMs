@@ -1,4 +1,5 @@
 [[HIDDEN]]
+Questions - US11960514
 What is the role of the LLM in relation to the semantic search engine as depicted in the system diagram?
 How does the system determine which past conversation snippets to retrieve, and how are they presented to the LLM?
 What specific types of data are used by the conversation analysis module, and how are these represented in the figures?
@@ -10,4 +11,13 @@ What is the relationship between 'past user intents' and 'recommended replies' i
 How does the patent propose handling ambiguous user inputs, and which elements in the figures support this approach?
 Which figure illustrates the integration of external knowledge bases, and how does the text describe their use in enhancing response accuracy?
 [[/HIDDEN]]
-
+What is the primary purpose of the node ranking method described in the patent?
+How does the method account for the importance of a document beyond simply counting backlinks?
+In the described ranking algorithm, what role does the constant C play in the random jump model?
+How does the iterative computation of the steady-state vector relate to document importance?
+What distinguishes this method from simple citation counting in terms of evaluating document rank?
+Why is it sometimes beneficial to exclude childless (dangling) pages during the iterative ranking process?
+What is the function of the transition probability matrix A in the ranking calculation?
+How can the system personalize ranking results for a specific user according to the patent?
+What is the advantage of using anchor text in backlinks when processing search queries?
+How does the method address attempts to artificially inflate a document's relevance?

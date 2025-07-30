@@ -823,20 +823,12 @@ def generate_answers(rag_prompts, output_file="answers.txt"):
         print("   Please make sure ollama is installed and running")
         return []
     
-        #     prompts.append({
-        #     'question': question,
-        #     'llava_prompt': llava_prompt,
-        #     'llama_prompt': llama_prompt,
-        #     'relevant_pages': relevant_pages,
-        #     'selected_images_chunks': selected_images_chunks
-        # })
-
-
     # Process each question
     for i, prompt_data in enumerate(rag_prompts, 1):
         question = prompt_data['question']
         llava_prompt = prompt_data['llava_prompt']
         llama_prompt = prompt_data['llama_prompt']
+        
         # Extract image paths safely (handle cases with 0, 1, or 2+ images)
         selected_images = prompt_data['selected_images_chunks']
         image_paths = [img['image_path'] for img in selected_images] if selected_images else []
@@ -844,8 +836,7 @@ def generate_answers(rag_prompts, output_file="answers.txt"):
         print(f"\n🤖 Generating answer {i}/{len(rag_prompts)}")
         print(f"   Question: {question[:60]}...")
         
-        # Choose model based on whether we have images 
-        # ( We will use both Llama and Llava for image questions and Llama only for text questions)
+        # ( We will use both Llama and Llava for image questions and Llama only for text questions (we have))
         # if image_paths and len(image_paths) > 0:
         print(f"   Images include, using LLaVA with {len(image_paths)} images: {image_paths}")
         answer_llava = call_ollama_llava(llava_prompt)
@@ -881,16 +872,12 @@ def generate_answers(rag_prompts, output_file="answers.txt"):
         with open(output_file, 'w', encoding='utf-8') as f:
             for ans_data in answers:
                 f.write(f"Question {ans_data['question_number']}: {ans_data['question']}\n")
-                f.write(f"{ans_data['answer']}\n\n")
+                f.write(f"Answer LLaMA ({ans_data['char_count_llama']} chars):\n{ans_data['answer_llama']}\n")
+                f.write(f"Answer LLaVA ({ans_data['char_count_llava']} chars):\n{ans_data['answer_llava']}\n")
         
         print(f"\n✅ Answers saved to {output_file}")
         
-        # Show summary
-        avg_length = sum(a['char_count'] for a in answers) / len(answers)
-        max_length = max(a['char_count'] for a in answers)
         print(f"   Total answers: {len(answers)}")
-        print(f"   Average length: {avg_length:.1f} characters")
-        print(f"   Maximum length: {max_length} characters")
         
     except Exception as e:
         print(f"❌ Error saving answers: {e}")
@@ -948,7 +935,7 @@ def main():
     Main function to execute the RAG pipeline steps
     """
     # pdf switch
-    pdf_path = "patent_1.pdf"
+    pdf_path = "US6285999.pdf"
     
     # Check if patent PDF exists
     if not os.path.exists(pdf_path):

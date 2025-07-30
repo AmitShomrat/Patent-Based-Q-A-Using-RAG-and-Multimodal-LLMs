@@ -314,3 +314,11 @@ Reason: Invalid file format.
 The evaluation prompts provided for answer quality and code review are guidelines and may be **adapted or refined** by the course staff if needed. 
 message.txt
 10 KB
+
+
+
+## 🎯 Points to concider:
+  We need to decide when images chunks will not selected ( e.g similarity threshold or something )
+  In case of image chunks are selected evaluate the most accurate answer and print it (both answers and user output).
+  OtherWise send and print only Llama answers.
+  Try to find the best way to evaluate answers, illusinations preventions and all related fields.
