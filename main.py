@@ -930,6 +930,138 @@ def test_ollama_models():
     return models
 
 
+def answers_eval(rag_prompts, answers, output_file="evaluation_results.txt", model_name="all-MiniLM-L6-v2"):
+    """
+    Evaluate answers from both LLaMA and LLaVA models using semantic similarity.
+    
+    This function computes the semantic similarity between each model's answer 
+    and its corresponding RAG prompt (containing question + context).
+    
+    Args:
+        rag_prompts (list): List of RAG prompt dictionaries with 'llama_prompt' and 'llava_prompt'
+        answers (list): List of answer dictionaries with 'answer_llama' and 'answer_llava'
+        output_file (str): Path to save evaluation results
+        model_name (str): SentenceTransformer model for computing embeddings
+        
+    Returns:
+        dict: Evaluation results with similarity scores for each question and model
+    """
+    print(f"\n=== Answer Evaluation ===")
+    if not answers:
+        print(f"❌ Error: No answers to evaluate!")
+        return {}
+    
+
+    # Evaluate both answers for this question
+    evaluations = {}
+    llama_scores = []
+    llava_scores = []
+    
+    for i, (answer, prompt) in enumerate(zip(answers, rag_prompts)):
+        llama_similarity = evaluate_single_answer(prompt['llama_prompt'], answer['answer_llama'], model_name)
+        llava_similarity = evaluate_single_answer(prompt['llava_prompt'], answer['answer_llava'], model_name) if prompt['llava_prompt'] else 0.0
+        
+        evaluations[answer['question']] = {
+            'question': answer['question'],
+            'llama_answer': answer['answer_llama'],
+            'llava_answer': answer['answer_llava'],
+            'llama_similarity': llama_similarity,
+            'llava_similarity': llava_similarity
+        }
+        
+        llama_scores.append(llama_similarity)
+        llava_scores.append(llava_similarity)
+
+        print(f"Question {i+1} Similarity Scores:")
+        print(f"  LLaMA: {llama_similarity:.4f}")
+        print(f"  LLaVA: {llava_similarity:.4f}")
+        
+    # Calculate and display averages
+    llama_avg = sum(llama_scores) / len(llama_scores) if llama_scores else 0.0
+    llava_avg = sum(llava_scores) / len(llava_scores) if llava_scores else 0.0
+    
+    print(f"\n=== Evaluation Summary ===")
+    print(f"LLaMA Average Similarity: {llama_avg:.4f}")
+    print(f"LLaVA Average Similarity: {llava_avg:.4f}")
+    
+    # Save results to file
+    save_similarity_results(evaluations, llama_avg, llava_avg, output_file)
+        
+    print(f"✅ Evaluated {len(evaluations)} questions")    
+    return evaluations
+    
+
+def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_chunks"):
+    """
+    Evaluate a single answer based on semantic similarity with the prompt.
+    
+    Args:
+        prompt (str): The RAG prompt containing question and context
+        answer (str): The model's answer
+        model_name (str): SentenceTransformer model name
+        
+    Returns:
+        float: Semantic similarity score between prompt and answer (0-1 scale)
+    """
+    # Handle error cases
+    if not answer or answer.startswith("Error:"):
+        return 0.0
+    
+    # Initialize model
+    model = SentenceTransformer(model_name)
+    
+    # Encode entire prompt and answer as single embeddings
+    prompt_embedding = model.encode([prompt], show_progress_bar=False)
+    answer_embedding = model.encode([answer], show_progress_bar=False)
+    
+    # Compute cosine similarity between the two single embeddings
+    similarity_matrix = cosine_similarity(prompt_embedding, answer_embedding)
+    similarity_score = similarity_matrix[0][0]  # Extract the single similarity value
+    
+    return float(similarity_score)
+
+
+def save_similarity_results(evaluations, llama_avg, llava_avg, output_file):
+    """
+    Save similarity evaluation results to a file.
+    
+    Args:
+        evaluations (dict): All evaluation data
+        llama_avg (float): LLaMA average similarity score
+        llava_avg (float): LLaVA average similarity score
+        output_file (str): Output file path
+    """
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("=== SEMANTIC SIMILARITY EVALUATION RESULTS ===\n\n")
+            
+            # Write detailed results for each question
+            for i, (question, data) in enumerate(evaluations.items(), 1):
+                f.write(f"Question {i}: {data['question']}\n")
+                f.write("-" * 80 + "\n")
+                
+                # LLaMA evaluation
+                f.write(f"LLaMA Answer: {data['llama_answer'][:100]}...\n")
+                f.write(f"LLaMA Similarity Score: {data['llama_similarity']:.4f}\n\n")
+                
+                # LLaVA evaluation
+                f.write(f"LLaVA Answer: {data['llava_answer'][:100]}...\n")
+                f.write(f"LLaVA Similarity Score: {data['llava_similarity']:.4f}\n")
+                
+                f.write("\n" + "="*80 + "\n\n")
+            
+            # Write summary
+            f.write("=== SUMMARY ===\n\n")
+            f.write(f"LLaMA Average Similarity: {llama_avg:.4f}\n")
+            f.write(f"LLaVA Average Similarity: {llava_avg:.4f}\n")
+            f.write(f"Better Model: {'LLaVA' if llava_avg > llama_avg else 'LLaMA' if llama_avg > llava_avg else 'Tie'}\n")
+        
+        print(f"✅ Detailed evaluation results saved to {output_file}")
+        
+    except Exception as e:
+        print(f"❌ Error saving evaluation results: {e}")
+
+
 def main():
     """
     Main function to execute the RAG pipeline steps
@@ -997,9 +1129,13 @@ def main():
     print(f"✅ Step 4: {len(rag_prompts)} RAG prompts constructed")
     print(f"✅ Step 5: {len(answers)} answers generated and saved")
     
+    # Optional: Run evaluation if answers were generated
+    if answers and rag_prompts:
+        print(f"\n=== Optional: Running Answer Evaluation ===")
+        evaluation_results = answers_eval(rag_prompts, answers)
+        return chunks, client, model, questions, rag_prompts, answers, evaluation_results
+    
     return chunks, client, model, questions, rag_prompts, answers
     
-
-
 if __name__ == "__main__":
     main()
