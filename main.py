@@ -787,7 +787,7 @@ def convert_image_to_text(image_path, page_num, model="llava:7b", max_chars=300)
         return 
 
 
-def generate_answers(rag_prompts, output_file="answers.txt"):
+def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     """
     Generate answers for all questions using ollama (LLaMA/LLaVA).
     
@@ -930,7 +930,7 @@ def test_ollama_models():
     return models
 
 
-def answers_eval(rag_prompts, answers, output_file="evaluation_results.txt", model_name="all-MiniLM-L6-v2"):
+def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="all-MiniLM-L6-v2"):
     """
     Evaluate answers from both LLaMA and LLaVA models using semantic similarity.
     
@@ -956,6 +956,7 @@ def answers_eval(rag_prompts, answers, output_file="evaluation_results.txt", mod
     evaluations = {}
     llama_scores = []
     llava_scores = []
+    file_output = open(output_file, "w")
     
     for i, (answer, prompt) in enumerate(zip(answers, rag_prompts)):
         llama_similarity = evaluate_single_answer(prompt['llama_prompt'], answer['answer_llama'], model_name)
@@ -986,6 +987,35 @@ def answers_eval(rag_prompts, answers, output_file="evaluation_results.txt", mod
     
     # Save results to file
     save_similarity_results(evaluations, llama_avg, llava_avg, output_file)
+    
+    # Write best answers to answers.txt
+    try:
+        with open("answers.txt", "w", encoding='utf-8') as f:
+            f.write("=== BEST ANSWERS BASED ON SIMILARITY SCORES ===\n\n")
+            
+            for i, (question, evaluation_data) in enumerate(evaluations.items(), 1):
+                # Determine which model has higher similarity
+                if evaluation_data['llama_similarity'] > evaluation_data['llava_similarity']:
+                    best_model = "LLaMA"
+                    best_answer = evaluation_data['llama_answer']
+                    best_similarity = evaluation_data['llama_similarity']
+                else:
+                    best_model = "LLaVA"
+                    best_answer = evaluation_data['llava_answer']
+                    best_similarity = evaluation_data['llava_similarity']
+                
+                # Write to file
+                f.write(f"Question {i}: {evaluation_data['question']}\n")
+                f.write(f"Best Answer ({best_model} - Similarity: {best_similarity:.4f}):\n")
+                f.write(f"{best_answer}\n\n")
+                f.write("-" * 80 + "\n\n")
+                
+                print(f"Question {i}: {best_model} wins (Similarity: {best_similarity:.4f})")
+        
+        print(f"✅ Best answers written to answers.txt")
+        
+    except Exception as e:
+        print(f"❌ Error writing best answers: {e}")
         
     print(f"✅ Evaluated {len(evaluations)} questions")    
     return evaluations
@@ -1021,7 +1051,7 @@ def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_
     return float(similarity_score)
 
 
-def save_similarity_results(evaluations, llama_avg, llava_avg, output_file):
+def save_similarity_results(evaluations, llama_avg, llava_avg, output_file="evaluation_results.txt"):
     """
     Save similarity evaluation results to a file.
     
