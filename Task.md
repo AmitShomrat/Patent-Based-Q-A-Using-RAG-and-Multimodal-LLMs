@@ -321,4 +321,6 @@ message.txt
   We need to decide when images chunks will not selected ( e.g similarity threshold or something )
   In case of image chunks are selected evaluate the most accurate answer and print it (both answers and user output).
   OtherWise send and print only Llama answers.
-  Try to find the best way to evaluate answers, illusinations preventions and all related fields.
+  Try to find the best way to evaluate answers, Hillusinations preventions, Coverage and all related fields.
+  Dividing Text chunks to 300 Bytes each, create overlap of m bytes each.
+  For the passed text chunks, choose the most relevant images.

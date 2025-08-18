@@ -30,14 +30,13 @@ def debug_print_chunking(text_added, image_added):
         summary.append("⚪ skipped")
     print(f"({', '.join(summary)})")
 
-def add_text_chunk(text_content, page_num, all_metadata, output_dir, pdf_path):
+def add_text_chunk(text_content, page_num, all_metadata, pdf_path):
     """
     Add a text chunk to the metadata.
     Args:
         text_content (str): The text content to add
         page_num (int): The page number of the chunk
         all_metadata (dict): The metadata dictionary
-        output_dir (str): The output directory
         pdf_path (str): The path to the PDF file
 
     Returns:
@@ -131,7 +130,8 @@ def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images",
     
     Returns:
         list: List of chunks with metadata in the format:
-              {"type": "text" or "image", "page": page_number, "content": text or image_path}
+              {"type": "text", "page": page_number, "content": text or image_path}
+              {"type": "image", "page": page_number, "image_description": image_description, "content": image_path}
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -401,7 +401,7 @@ def retrieve_relevant_chunks(question, client, model, collection_name="patent_ch
     
     return relevant_chunks
 
-
+# TODO: Instead of taking the greatest score, we have to take the greatest for the top chosen texts chunks (For each chosen text, take the top image).
 def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, collection_name="patent_chunks"):
     """
     Find up to 2 most relevant image chunks based on similarity to the relevant text chunks.
@@ -786,7 +786,7 @@ def convert_image_to_text(image_path, page_num, model="llava:7b", max_chars=300)
         print(f"❌ Error calling ollama llava: {e}")
         return 
 
-
+# === STEP 6: ANSWERS TO FILE ===
 def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     """
     Generate answers for all questions using ollama (LLaMA/LLaVA).
