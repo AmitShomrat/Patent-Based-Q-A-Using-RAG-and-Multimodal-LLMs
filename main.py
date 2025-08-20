@@ -3,17 +3,21 @@ import subprocess
 import fitz  # PyMuPDF
 import json
 import re
-from PIL import Image
-import io
-import tempfile
+import base64, os, requests
+from PIL import Image, ImageFilter, ImageOps
+from io import BytesIO
 import easyocr
 import numpy as np
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import cv2
 from sentence_transformers import SentenceTransformer
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchAny
 from sklearn.metrics.pairwise import cosine_similarity
 import uuid
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+
 
 # === STEP 1: CHUNKING ===
 
@@ -30,7 +34,7 @@ def debug_print_chunking(text_added, image_added):
         summary.append("⚪ skipped")
     print(f"({', '.join(summary)})")
 
-def add_text_chunk(text_content, page_num, all_metadata, pdf_path):
+def add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path):
     """
     Add a text chunk to the metadata.
     Args:
@@ -43,17 +47,162 @@ def add_text_chunk(text_content, page_num, all_metadata, pdf_path):
         bool: True if the text chunk was added successfully, False otherwise
     """
     print("Converting text chunk")
+
     try:
         if text_content.strip():
-            all_metadata[pdf_path]["chunks"].append({
-                "type": "text",
-                "page": page_num + 1,
-                "content": text_content.strip()
-            })
+            text_chunks = text_splitter.split_text(text_content)
+            for i, chunk in enumerate(text_chunks):
+                all_metadata[pdf_path]["chunks"].append({
+                    "type": "text",
+                    "page": page_num + 1,
+                    "chunk_number": i,
+                    "content": chunk.strip()
+                })
     except Exception as e:
         print(f"Error converting text chunk: {e}")
         return False
     return True
+
+def _preprocess_image(path, target_dpi=300):
+    """Enhanced image preprocessing optimized for patent diagrams and text recognition
+    
+    Args:
+        path: Path to image file
+        target_dpi: Target DPI for image processing
+    """
+    # Open and convert to grayscale for better text/diagram processing
+    im = Image.open(path).convert('L')  # Convert to grayscale
+    w, h = im.size
+    
+    # Calculate scaling to achieve target DPI
+    scale = target_dpi / 72  # Assuming standard 72 DPI input
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    
+    # High-quality upscaling
+    im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
+    # Advanced image processing pipeline
+    # 1. Enhance contrast
+    im = ImageOps.autocontrast(im, cutoff=0.5)
+    
+    # 2. Adaptive thresholding for better text/line detection
+    im = im.filter(ImageFilter.UnsharpMask(radius=1.5, percent=200, threshold=2))
+    
+    # 3. Noise reduction while preserving edges
+    im = im.filter(ImageFilter.MedianFilter(3))
+    
+    # 4. Final contrast adjustment
+    im = ImageOps.equalize(im)
+    
+    # 5. Convert back to RGB for compatibility
+    im = im.convert('RGB')
+    
+    # Save with optimal settings for text/diagram clarity
+    buf = BytesIO()
+    im.save(buf, format='PNG', optimize=True, quality=95)
+    return base64.b64encode(buf.getvalue()).decode('utf-8')
+
+def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
+    """
+    Convert an image to text using Ollama.
+    Args:
+        image_path (str): Path to the image file
+        page_num (int): The page number of the chunk
+        model (str): The model to use for text extraction
+        max_chars (int): The maximum number of characters to return
+    
+    Returns:
+        dict: A dictionary containing the image description and metadata
+        None: If the image file is not found or the preprocessing fails
+    """
+    if not os.path.exists(image_path):
+        print(f"❌ Image file not found: {image_path}")
+        return None
+
+    # Check if Ollama server is running
+    if not check_ollama_server():
+        return None
+
+    try:
+        img_b64 = _preprocess_image(image_path)
+    except Exception as e:
+        print(f"❌ Failed to preprocess image: {e}")
+        return None
+
+    prompt = (
+             "You are an OCR-style diagram transcriber.\n"
+             "Analyze the image and output ONLY in this format:\n"
+             "Type: [Flowchart / Directed Graph / UML Diagram]\n"
+             "NODES:\n"
+             "- <NodeID or order>: \"<Exact text inside node>\" (approx. number of text lines)\n"
+             "EDGES:\n"
+             "<Node1> -> <Node2>\n"
+             "<Node2> -> <Node3>\n"
+             "...\n"
+             "ALL TEXT:\n"
+             "Copy verbatim ALL text seen anywhere in the image (limit {max_chars} characters).\n"
+             "RULES:\n"
+             "- Do NOT add introductions or explanations.\n"
+             "- Do NOT infer or interpret meaning.\n"
+             "- If a node has no visible label, assign an incremental ID (Box1, Box2, …).\n"
+             "- Output plain text only, following the format above."
+     )
+
+    payload = {
+         "model": model,
+         "prompt": prompt,
+         "images": [img_b64],
+         "options": {
+             "temperature": 0.0,          # Zero creativity
+             "num_predict": 250,          # Limit response length
+             "stop": ["STEP", "Note:", "Example:", "--", "Instructions:", "\n\n\n"],  # Stop any instruction copying
+             "top_k": 1,                  # Most deterministic
+             "top_p": 0.1,               # Most focused
+             "repeat_penalty": 1.5,       # Strongly prevent repeating instructions
+             "presence_penalty": 0.0      # Don't force mentioning everything
+         }
+     }
+
+    try:
+        r = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        r.raise_for_status()
+
+        # Print response for debugging
+        print(f"Response status: {r.status_code}")
+         
+        # Handle streaming response - each line is a separate JSON object
+        response_text = ""
+        for line in r.text.strip().split('\n'):
+            try:
+                if line.strip():  # Skip empty lines
+                    data = json.loads(line)
+                    if "response" in data:
+                        response_text += data["response"]
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse JSON line: {e}")
+                print(f"Problematic line: {line}")
+                continue
+
+        text = response_text.strip()
+        if not text:
+            print("❌ No valid response received from Ollama")
+            return None
+
+    except requests.RequestException as e:
+         print(f"Request failed: {e}")
+         return None
+
+    # safety trim to max_chars at word boundary
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit(" ", 1)[0] + "…"
+
+    return {
+        "type": "image_description",
+        "page": page_num,
+        "content": text,
+        "image_path": image_path
+    }
 
 def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
     """
@@ -76,22 +225,22 @@ def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
         image_path = os.path.join(output_dir, image_filename)
         with open(image_path, 'wb') as f:
             f.write(img_data)
-        all_metadata[pdf_path]['chunks'].append(convert_image_to_text(image_path, page_num + 1))
+        all_metadata[pdf_path]['chunks'].append(sheet_descriptions(image_path, page_num + 1))
     except Exception as e:
         print(f"Error converting image chunk: {e}")
         return False
 
     return True
 
-def ocr_text_image_extraction(page, page_num, all_metadata, output_dir, pdf_path):
+def ocr_text_extraction (page):
     """
-    Extract text and images from a page using OCR.
-    Args: 
-        page - current page processed
-        all_metadata - all metadata of the patent
-        output_dir - directory to save extracted images
+    Extract text from a page using OCR.
+    Args:
+        page (fitz.Page): The page to extract the text from
+    
+    Returns:
+        str: The extracted text
     """
-
     # Page extraction pre - processing and cleaning:
     pix = page.get_pixmap(dpi=300)
     img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
@@ -112,14 +261,9 @@ def ocr_text_image_extraction(page, page_num, all_metadata, output_dir, pdf_path
     reader = easyocr.Reader(['en'])
     ocr_results = reader.readtext(img)
     ocr_text = " ".join([result[1] for result in ocr_results])
-    matches = re.findall(r'sheet\s+.+?\s+of\s+.+?(?=[\.\n]|$)', ocr_text, flags=re.IGNORECASE)
+    return ocr_text
 
-    if matches: 
-        debug_print_chunking (False, add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path))
-    else:
-        debug_print_chunking (add_text_chunk(ocr_text, page_num, all_metadata, output_dir, pdf_path), False)
-
-def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images", enable_ocr=False):
+def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images"):
     """
     Extract text and images from a patent PDF file.
     
@@ -141,27 +285,43 @@ def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images",
     all_metadata = {pdf_path: {
                       "chunks": []}}
     
+    separators = [
+    "\n\n",  # First try to split on double newlines (paragraphs)
+    "! ",    # Split on exclamation marks followed by space
+    "? ",    # Split on question marks followed by space
+    ". ",    # Split on periods followed by space
+    "\n",    # Then try single newlines
+    " ",     # Then spaces
+    ""       # Finally, character by character if needed
+    ]
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=100,
+        length_function=len,
+        separators=separators,
+        is_separator_regex=False
+    )
+
     print(f"Processing {total_pages} pages...")
     
     for page_num in range(total_pages):
         page = doc[page_num]
         print(f"📄 Processing page {page_num + 1}/{total_pages}...", end=" ")
         
-        # Extract text from the page
+        # Extract text from page pdf plain text
         text_content = page.get_text()
-        if text_content.strip():
-            matches = re.findall(r'sheet\s+.+?\s+of\s+.+?(?=[\.\n]|$)', text_content, flags=re.IGNORECASE)
-            image_added = False
-            text_added = False
-            if matches:
-                image_added = add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path)
-            else:
-                text_added = add_text_chunk(text_content, page_num, all_metadata, output_dir, pdf_path)
-            debug_print_chunking(text_added, image_added)
-        # If no text is found, use OCR to extract text and images
+        if not text_content.strip():
+            text_content = ocr_text_extraction(page)
+
+        matches = re.findall(r'sheet\s+.+?\s+of\s+.+?(?=[\.\n]|$)', text_content, flags=re.IGNORECASE)
+        image_added = False
+        text_added = False
+        if matches:
+            image_added = add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path)
         else:
-            print("No text found, using OCR to extract text and images")
-            ocr_text_image_extraction(page, page_num, all_metadata, output_dir, pdf_path)
+            text_added = add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path)
+        debug_print_chunking(text_added, image_added)
 
     # Close the document
     doc.close()
@@ -402,7 +562,7 @@ def retrieve_relevant_chunks(question, client, model, collection_name="patent_ch
     return relevant_chunks
 
 # TODO: Instead of taking the greatest score, we have to take the greatest for the top chosen texts chunks (For each chosen text, take the top image).
-def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, collection_name="patent_chunks"):
+def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, collection_name="patent_chunks", max_threshold=0.5):
     """
     Find up to 2 most relevant image chunks based on similarity to the relevant text chunks.
     
@@ -469,7 +629,8 @@ def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, colle
         })
 
 
-
+    # TODO: we need to modify this to take img from given similirity score threshold.
+    
     # Calculate max similarity between each image and any relevant text chunk
     similarities = []
     for candidate_embedding in candidates_images_embeddings:
@@ -485,15 +646,21 @@ def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, colle
     
     # Sort by similarity (highest first) and return top max_images
     candidate_images.sort(key=lambda x: x['similarity'], reverse=True)
-    selected_images = candidate_images[:max_images]
-    
-    # Debug: Print similarity scores
-    print(f"     Top {max_images} image similarity scores (vs pre-computed relevant text embeddings):")
-    for i, img in enumerate(selected_images):
-        print(f"       Image {i+1}: Page {img['page']}, Max Similarity = {img['similarity']:.3f}, Path = {img['image_path']}")
-    
-    return selected_images
-
+    selected_images = []
+    for img in candidate_images[:max_images]:
+        if img['similarity'] >= max_threshold:
+            selected_images.append(img)
+        else:
+            break
+    if selected_images:
+        # Debug: Print similarity scores
+        print(f"     Top {max_images} image similarity scores (vs pre-computed relevant text embeddings):")
+        for i, img in enumerate(selected_images):
+            print(f"       Image {i+1}: Page {img['page']}, Max Similarity = {img['similarity']:.3f}, Path = {img['image_path']}")
+        return selected_images
+    else:
+        print(f"     No images found with similarity score >= {max_threshold}")
+        return None
 
 def construct_rag_prompt(question, question_index, relevant_chunks, selected_images_chunks, max_context_bytes=2000):
     """
@@ -552,9 +719,7 @@ def construct_rag_prompt(question, question_index, relevant_chunks, selected_ima
         context_bytes_with_images = max_context_bytes - images_context_bytes - question_bytes
         prompt_llama = f"""Question {question_index} [bytes: {question_bytes}]:\n{question}\nText-Context [bytes: {context_bytes_with_images}]:\n{text_context.encode('utf-8')[:context_bytes_with_images].decode('utf-8', errors='ignore')}\nImages-Context [bytes: {images_context_bytes}]:\n{images_context}"""
     else:
-        prompt_llava = None
-        context_bytes_without_images = max_context_bytes - question_bytes
-        prompt_llama = f"""Question {question_index} [bytes: {question_bytes}]:\n{question}\nText-Context [bytes: {context_bytes_without_images}]:\n{text_context.encode('utf-8')[:context_bytes_without_images].decode('utf-8', errors='ignore')}"""    
+        prompt_llava = prompt_llama = f"""Question {question_index} [bytes: {question_bytes}]:\n{question}\nText-Context [bytes: {total_bytes}]:\n{context_parts[:max_context_bytes]}"""    
     
     return prompt_llava, prompt_llama
 
@@ -619,7 +784,7 @@ def process_questions_with_rag(questions, chunks, client, model):
     return prompts
 
 # === STEP 5: ANSWER GENERATION ===
-def call_ollama_llama(prompt, model="llama3.2:3b", max_chars=300):
+def call_ollama_llama(prompt, model="llama3", max_chars=300):
     """
     Call LLaMA via ollama for text-only questions.
     
@@ -672,7 +837,6 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
         print(f"❌ Error calling ollama: {e}")
         return "Error: Unable to generate answer"
 
-
 def call_ollama_llava(prompt, model="llava:7b", max_chars=300):
     """
     Call LLaVA via ollama for text and image questions.
@@ -712,73 +876,6 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             answer = answer[:max_chars].rsplit(' ', 1)[0] + "..."
         return answer
     
-    except subprocess.TimeoutExpired:
-        print("❌ Timeout calling ollama llava")
-        return 
-    except Exception as e:
-        print(f"❌ Error calling ollama llava: {e}")
-        return 
-
-
-def convert_image_to_text(image_path, page_num, model="llava:7b", max_chars=300):
-    """
-    Call LLaVA via ollama for image text conversion.
-    
-    Args:
-        image_path (str): The input image path
-        model (str): LLaVA model to use
-        
-    Returns:
-        str: Generated answer
-    """
-    try:
-        # Build the command with image paths
-        cmd = ["ollama", "run", model]
-        
-        # Add instruction to limit response length and focus on provided content
-        full_prompt = f"""
-                        Please analyze the provided image. Keep your answer under {max_chars} characters. Base your answer ONLY on the provided image - do not use external knowledge.
-                        Image:
-                        {image_path}"""
-                        
-           
-        # If we have images, add them to the prompt
-        if image_path:
-            # Convert to absolute paths
-            abs_image_path = os.path.abspath(image_path) if os.path.exists(image_path) else None
-            if abs_image_path:
-                # Format images for LLaVA - this format depends on how ollama handles images
-                image_section = "Image to analyze:\n" + abs_image_path + "\n\n"
-                full_prompt = image_section + full_prompt
-        
-        # Use subprocess to call ollama
-        process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding='utf-8'
-        )
-        
-        # Send prompt and get response
-        stdout, stderr = process.communicate(input=full_prompt, timeout=120)
-        
-        if process.returncode != 0:
-            print(f"❌ Error calling ollama llava: {stderr}")
-            # Fallback to text-only if image processing fails
-            print("   Falling back to text-only LLaMA...")
-            return 
-        
-        # Clean and truncate the response
-        answer = stdout.strip()
-        return {
-        "type": "image_description",
-        "page": page_num,
-        "content": answer[:max_chars].rsplit(' ', 1)[0] + "...",
-        "image_path": image_path  # Keep original path for find_nearby_images
-    }
-        
     except subprocess.TimeoutExpired:
         print("❌ Timeout calling ollama llava")
         return 
@@ -829,27 +926,22 @@ def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
         llava_prompt = prompt_data['llava_prompt']
         llama_prompt = prompt_data['llama_prompt']
         
-        # Extract image paths safely (handle cases with 0, 1, or 2+ images)
-        selected_images = prompt_data['selected_images_chunks']
-        image_paths = [img['image_path'] for img in selected_images] if selected_images else []
+        # # Extract image paths safely (handle cases with 0, 1, or 2+ images)
+        # selected_images = prompt_data['selected_images_chunks']
+        # image_paths = [img['image_path'] for img in selected_images] if selected_images else []
         
         print(f"\n🤖 Generating answer {i}/{len(rag_prompts)}")
-        print(f"   Question: {question[:60]}...")
+        print(f"   Question: {question}")
         
-        # ( We will use both Llama and Llava for image questions and Llama only for text questions (we have))
+        # # ( We will use both Llama and Llava for image questions and Llama only for text questions (we have))
         # if image_paths and len(image_paths) > 0:
-        print(f"   Images include, using LLaVA with {len(image_paths)} images: {image_paths}")
-        answer_llava = call_ollama_llava(llava_prompt)
-        answer_llama = call_ollama_llama(llama_prompt)
-        
-        # TODO: compare answers
-        # answer = compare_answers(answer_llama, answer_llava)
+        #     print(f"   Images include, using LLaVA with {len(image_paths)} images: {image_paths}")
 
-        # Ensure answers don't exceed 300 characters and handle None values
-        if answer_llama and len(answer_llama) > 300:
-            answer_llama = answer_llama[:297] + "..."
-        if answer_llava and len(answer_llava) > 300:
-            answer_llava = answer_llava[:297] + "..."
+        answer_llava = call_ollama_llava(llava_prompt)
+        answer_llava = answer_llava[:300]  # Ensure answers don't exceed 300 characters and handle None values
+        
+        answer_llama = call_ollama_llama(llama_prompt)
+        answer_llama = answer_llama[:300]
         
         # Handle None values for character counting
         llama_chars = len(answer_llama) if answer_llama else 0
@@ -884,6 +976,16 @@ def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     
     return answers
 
+def check_ollama_server():
+    """Check if Ollama server is running and accessible"""
+    try:
+        r = requests.get("http://localhost:11434/api/tags")
+        r.raise_for_status()
+        return True
+    except requests.RequestException as e:
+        print(f"❌ Ollama server not accessible: {e}")
+        print("   Please make sure Ollama is running (run 'ollama serve' in terminal)")
+        return False
 
 def test_ollama_models():
     """
@@ -928,7 +1030,6 @@ def test_ollama_models():
         print(f"   ❌ Error testing ollama: {e}")
     
     return models
-
 
 def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="all-MiniLM-L6-v2"):
     """
@@ -1096,8 +1197,9 @@ def main():
     """
     Main function to execute the RAG pipeline steps
     """
+    # TODO: add stoper for the entire process
     # pdf switch
-    pdf_path = "US6285999.pdf"
+    pdf_path = "US11960514.pdf"
     
     # Check if patent PDF exists
     if not os.path.exists(pdf_path):
@@ -1117,9 +1219,7 @@ def main():
         chunks = all_metadata[pdf_path]["chunks"]
     else:
         print("Processing patent PDF...")
-        print("💡 For faster processing, OCR is disabled by default")
-        print("   If you need OCR for scanned pages, set enable_ocr=True in the function call")
-        all_metadata = extract_text_and_images_from_patent(pdf_path, enable_ocr=False)
+        all_metadata = extract_text_and_images_from_patent(pdf_path)
         save_chunks_metadata(all_metadata)
         chunks = all_metadata[pdf_path]["chunks"]
     

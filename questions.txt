@@ -1,5 +1,4 @@
 [[HIDDEN]]
-Questions - US11960514
 What is the role of the LLM in relation to the semantic search engine as depicted in the system diagram?
 How does the system determine which past conversation snippets to retrieve, and how are they presented to the LLM?
 What specific types of data are used by the conversation analysis module, and how are these represented in the figures?
