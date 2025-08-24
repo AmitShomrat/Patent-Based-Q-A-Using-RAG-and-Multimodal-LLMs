@@ -105,105 +105,87 @@ def _preprocess_image(path, target_dpi=300):
 
 def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
     """
-    Convert an image to text using Ollama.
+    Convert an image to text using Llava via subprocess.
     Args:
         image_path (str): Path to the image file
         page_num (int): The page number of the chunk
-        model (str): The model to use for text extraction
+        model (str): The model to use for text extraction (ignored in subprocess version)
         max_chars (int): The maximum number of characters to return
     
     Returns:
         dict: A dictionary containing the image description and metadata
-        None: If the image file is not found or the preprocessing fails
+        None: If the image file is not found or the processing fails
     """
     if not os.path.exists(image_path):
         print(f"❌ Image file not found: {image_path}")
         return None
 
-    # Check if Ollama server is running
-    if not check_ollama_server():
-        return None
-
-    try:
-        img_b64 = _preprocess_image(image_path)
-    except Exception as e:
-        print(f"❌ Failed to preprocess image: {e}")
-        return None
-
     prompt = (
-             "You are an OCR-style diagram transcriber.\n"
-             "Analyze the image and output ONLY in this format:\n"
-             "Type: [Flowchart / Directed Graph / UML Diagram]\n"
-             "NODES:\n"
-             "- <NodeID or order>: \"<Exact text inside node>\" (approx. number of text lines)\n"
-             "EDGES:\n"
-             "<Node1> -> <Node2>\n"
-             "<Node2> -> <Node3>\n"
-             "...\n"
-             "ALL TEXT:\n"
-             "Copy verbatim ALL text seen anywhere in the image (limit {max_chars} characters).\n"
-             "RULES:\n"
-             "- Do NOT add introductions or explanations.\n"
-             "- Do NOT infer or interpret meaning.\n"
-             "- If a node has no visible label, assign an incremental ID (Box1, Box2, …).\n"
-             "- Output plain text only, following the format above."
-     )
-
-    payload = {
-         "model": model,
-         "prompt": prompt,
-         "images": [img_b64],
-         "options": {
-             "temperature": 0.0,          # Zero creativity
-             "num_predict": 250,          # Limit response length
-             "stop": ["STEP", "Note:", "Example:", "--", "Instructions:", "\n\n\n"],  # Stop any instruction copying
-             "top_k": 1,                  # Most deterministic
-             "top_p": 0.1,               # Most focused
-             "repeat_penalty": 1.5,       # Strongly prevent repeating instructions
-             "presence_penalty": 0.0      # Don't force mentioning everything
-         }
-     }
+        "You are an OCR-style diagram transcriber.\n"
+        "Analyze the image and output ONLY in this format:\n"
+        "Type: [Flowchart / Directed Graph / UML Diagram]\n"
+        "NODES:\n"
+        "- <NodeID or order>: \"<Exact text inside node>\" (approx. number of text lines)\n"
+        "EDGES:\n"
+        "<Node1> -> <Node2>\n"
+        "<Node2> -> <Node3>\n"
+        "...\n"
+        "ALL TEXT:\n"
+        f"Copy verbatim ALL text seen anywhere in the image (limit {max_chars} characters).\n"
+        "RULES:\n"
+        "- Do NOT add introductions or explanations.\n"
+        "- Do NOT infer or interpret meaning.\n"
+        "- If a node has no visible label, assign an incremental ID (Box1, Box2, …).\n"
+        "- Output plain text only, following the format above."
+    )
 
     try:
-        r = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        r.raise_for_status()
+        # Construct the llava command
+        cmd = [
+            "llava",  # assuming llava is in PATH
+            "-m", "/path/to/llava/model",  # replace with actual model path
+            "--image", image_path,
+            "--temp", "0.0",  # Zero creativity
+            "--top_p", "0.1",  # Most focused
+            "-n", "250"  # Limit response length
+        ]
 
-        # Print response for debugging
-        print(f"Response status: {r.status_code}")
-         
-        # Handle streaming response - each line is a separate JSON object
-        response_text = ""
-        for line in r.text.strip().split('\n'):
-            try:
-                if line.strip():  # Skip empty lines
-                    data = json.loads(line)
-                    if "response" in data:
-                        response_text += data["response"]
-            except json.JSONDecodeError as e:
-                print(f"Failed to parse JSON line: {e}")
-                print(f"Problematic line: {line}")
-                continue
+        # Run the command and capture output
+        process = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-        text = response_text.strip()
-        if not text:
-            print("❌ No valid response received from Ollama")
+        # Send prompt to stdin
+        stdout, stderr = process.communicate(input=prompt)
+
+        if process.returncode != 0:
+            print(f"❌ Llava process failed: {stderr}")
             return None
 
-    except requests.RequestException as e:
-         print(f"Request failed: {e}")
-         return None
+        text = stdout.strip()
+        if not text:
+            print("❌ No valid response received from Llava")
+            return None
 
-    # safety trim to max_chars at word boundary
-    if len(text) > max_chars:
-        text = text[:max_chars].rsplit(" ", 1)[0] + "…"
+        # safety trim to max_chars at word boundary
+        if len(text) > max_chars:
+            text = text[:max_chars].rsplit(" ", 1)[0] + "…"
 
-    return {
-        "type": "image_description",
-        "page": page_num,
-        "content": text,
-        "image_path": image_path
-    }
+        return {
+            "type": "image_description",
+            "page": page_num,
+            "content": text,
+            "image_path": image_path
+        }
 
+    except Exception as e:
+        print(f"❌ Failed to run Llava: {e}")
+        return None
+    
 def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
     """
     Add an image chunk to the metadata.
@@ -259,7 +241,10 @@ def ocr_text_extraction (page):
     
     # Text extraction:
     reader = easyocr.Reader(['en'])
-    ocr_results = reader.readtext(img)
+    # Tries two angles: 0 and 90 and provide the most confident result. 
+    # We need to find the best angle for the page. the rotation info should try the angles that it set to, 
+    # but the results are not accurate as rotating the page through the page.set_rotation(90) of fitz.
+    ocr_results = reader.readtext(img, rotation_info=[0, 90])
     ocr_text = " ".join([result[1] for result in ocr_results])
     return ocr_text
 
