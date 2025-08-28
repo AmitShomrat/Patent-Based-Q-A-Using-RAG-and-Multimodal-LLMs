@@ -3,5 +3,8 @@ __pycache__/
 answers.txt
 prompt_llama.txt
 prompt_llava.txt
+all_metadata.json
+extracted_images/
 test.py
 page.txt
+main.py

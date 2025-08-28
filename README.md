@@ -44,11 +44,21 @@ This project implements a complete RAG pipeline that:
 1. **Install Ollama**
    ```bash
    # Download from https://ollama.ai/
-   ollama pull llama3.2:3b
+   ollama pull llama3
    ollama pull llava:7b
    ```
 
-2. **Python Dependencies**
+2. **Create venv**
+   ```bash
+   python -m venv venv
+   ```
+
+3. **activate the venv**
+   ```bash
+   source .\venv\Scripts\activate
+   ```
+
+3. **Python Dependencies**
    ```bash
    pip install -r requirements.txt
    ```
@@ -59,7 +69,7 @@ This project implements a complete RAG pipeline that:
 2. **Create questions file** (`questions.txt`) with one question per line
 3. **Run the pipeline**:
    ```python
-   python main.py
+   python Patent_RAG.py
    ```
 
 ### Example Questions (`questions.txt`)
@@ -130,7 +140,7 @@ evaluation_results = answers_eval(rag_prompts, answers)
 ## ⚙️ Configuration
 
 ### Model Settings
-- **Text Model**: `llama3.2:3b` (configurable)
+- **Text Model**: `llama3` (configurable)
 - **Vision Model**: `llava:7b` (configurable)
 - **Embedding Model**: `all-MiniLM-L6-v2` (384 dimensions)
 - **Vector Store**: Qdrant in-memory mode
@@ -142,8 +152,7 @@ evaluation_results = answers_eval(rag_prompts, answers)
 - **Answer limit**: 300 characters
 
 ### OCR Settings
-- **Default**: Disabled for faster processing
-- **Enable**: Set `enable_ocr=True` for scanned documents
+- **Default**: App analyzes page image and automaticaly scanned documents using ocr
 - **Language**: English (`en`)
 - **Processing**: Gaussian blur + OTSU thresholding
 

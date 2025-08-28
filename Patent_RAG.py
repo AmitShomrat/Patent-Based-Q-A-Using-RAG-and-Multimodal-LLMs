@@ -1,11 +1,29 @@
+# ---
+# jupyter:
+#   jupytext:
+#     formats: ipynb,py:percent
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.17.2
+#   kernelspec:
+#     display_name: Python 3 (ipykernel)
+#     language: python
+#     name: python3
+# ---
+
+# %%
+# Work by:
+# Amit shomrat - 308032218
+# Leon Nizovtsov - 314801713
+
+# %%
 import os
 import subprocess
 import fitz  # PyMuPDF
 import json
 import re
-import base64, os, requests
-from PIL import Image, ImageFilter, ImageOps
-from io import BytesIO
 import easyocr
 import numpy as np
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -16,9 +34,8 @@ from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filte
 from sklearn.metrics.pairwise import cosine_similarity
 import uuid
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
 
-
+# %%
 # === STEP 1: CHUNKING ===
 
 def debug_print_chunking(text_added, image_added):
@@ -34,6 +51,8 @@ def debug_print_chunking(text_added, image_added):
         summary.append("⚪ skipped")
     print(f"({', '.join(summary)})")
 
+
+# %%
 def add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path):
     """
     Add a text chunk to the metadata.
@@ -63,46 +82,8 @@ def add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path
         return False
     return True
 
-def _preprocess_image(path, target_dpi=300):
-    """Enhanced image preprocessing optimized for patent diagrams and text recognition
-    
-    Args:
-        path: Path to image file
-        target_dpi: Target DPI for image processing
-    """
-    # Open and convert to grayscale for better text/diagram processing
-    im = Image.open(path).convert('L')  # Convert to grayscale
-    w, h = im.size
-    
-    # Calculate scaling to achieve target DPI
-    scale = target_dpi / 72  # Assuming standard 72 DPI input
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    
-    # High-quality upscaling
-    im = im.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    
-    # Advanced image processing pipeline
-    # 1. Enhance contrast
-    im = ImageOps.autocontrast(im, cutoff=0.5)
-    
-    # 2. Adaptive thresholding for better text/line detection
-    im = im.filter(ImageFilter.UnsharpMask(radius=1.5, percent=200, threshold=2))
-    
-    # 3. Noise reduction while preserving edges
-    im = im.filter(ImageFilter.MedianFilter(3))
-    
-    # 4. Final contrast adjustment
-    im = ImageOps.equalize(im)
-    
-    # 5. Convert back to RGB for compatibility
-    im = im.convert('RGB')
-    
-    # Save with optimal settings for text/diagram clarity
-    buf = BytesIO()
-    im.save(buf, format='PNG', optimize=True, quality=95)
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
 
+# %%
 def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
     """
     Convert an image to text using Llava via subprocess.
@@ -119,8 +100,8 @@ def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
     if not os.path.exists(image_path):
         print(f"❌ Image file not found: {image_path}")
         return None
-
     prompt = (
+        f"Image: {image_path}\n"
         "You are an OCR-style diagram transcriber.\n"
         "Analyze the image and output ONLY in this format:\n"
         "Type: [Flowchart / Directed Graph / UML Diagram]\n"
@@ -141,14 +122,7 @@ def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
 
     try:
         # Construct the llava command
-        cmd = [
-            "llava",  # assuming llava is in PATH
-            "-m", "/path/to/llava/model",  # replace with actual model path
-            "--image", image_path,
-            "--temp", "0.0",  # Zero creativity
-            "--top_p", "0.1",  # Most focused
-            "-n", "250"  # Limit response length
-        ]
+        cmd = ["ollama","run","llava:7b"]
 
         # Run the command and capture output
         process = subprocess.Popen(
@@ -156,7 +130,9 @@ def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            encoding="utf-8",     # ← add this
+            errors="replace"      # ← and this (never crash on odd bytes)
         )
 
         # Send prompt to stdin
@@ -185,7 +161,10 @@ def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
     except Exception as e:
         print(f"❌ Failed to run Llava: {e}")
         return None
-    
+
+
+
+# %%
 def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
     """
     Add an image chunk to the metadata.
@@ -214,6 +193,8 @@ def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
 
     return True
 
+
+# %%
 def ocr_text_extraction (page):
     """
     Extract text from a page using OCR.
@@ -248,6 +229,9 @@ def ocr_text_extraction (page):
     ocr_text = " ".join([result[1] for result in ocr_results])
     return ocr_text
 
+
+
+# %%
 def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images"):
     """
     Extract text and images from a patent PDF file.
@@ -314,6 +298,9 @@ def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images")
     
     return all_metadata
 
+
+
+# %%
 def save_chunks_metadata(chunks, metadata_file="all_metadata.json"):
     """
     Save the chunks metadata to a JSON file.
@@ -343,6 +330,8 @@ def save_chunks_metadata(chunks, metadata_file="all_metadata.json"):
         
     print(f"Metadata saved to {metadata_file}")
 
+
+# %%
 def load_chunks_metadata(metadata_file="all_metadata.json"):
     """
     Load chunks metadata from JSON file.
@@ -367,6 +356,9 @@ def load_chunks_metadata(metadata_file="all_metadata.json"):
     print(f"Loaded {len(chunks)} groups of chunks from {metadata_file}")
     return chunks
 
+
+
+# %%
 # === STEP 2: VECTOR STORE ===
 def create_vector_store(chunks, model_name="all-MiniLM-L6-v2", collection_name="patent_chunks"):
     """
@@ -445,6 +437,8 @@ def create_vector_store(chunks, model_name="all-MiniLM-L6-v2", collection_name="
     
     return client, model
 
+
+# %%
 # === STEP 3: QUESTION INPUT ===
 def load_questions(questions_file="questions.txt"):
     """
@@ -495,6 +489,8 @@ def load_questions(questions_file="questions.txt"):
     
     return questions
 
+
+# %%
 # === STEP 4: RAG PROMPT CONSTRUCTION ===
 def retrieve_relevant_chunks(question, client, model, collection_name="patent_chunks", top_k=3):
     """
@@ -546,8 +542,10 @@ def retrieve_relevant_chunks(question, client, model, collection_name="patent_ch
     
     return relevant_chunks
 
+
+# %%
 # TODO: Instead of taking the greatest score, we have to take the greatest for the top chosen texts chunks (For each chosen text, take the top image).
-def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, collection_name="patent_chunks", max_threshold=0.5):
+def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, collection_name="patent_chunks", max_threshold=0.4):
     """
     Find up to 2 most relevant image chunks based on similarity to the relevant text chunks.
     
@@ -647,6 +645,8 @@ def top_similar_images(relevant_chunks, chunks, max_images=2, client=None, colle
         print(f"     No images found with similarity score >= {max_threshold}")
         return None
 
+
+# %%
 def construct_rag_prompt(question, question_index, relevant_chunks, selected_images_chunks, max_context_bytes=2000):
     """
     Construct RAG prompt with question, context, and images.
@@ -708,6 +708,9 @@ def construct_rag_prompt(question, question_index, relevant_chunks, selected_ima
     
     return prompt_llava, prompt_llama
 
+
+
+# %%
 # Using the models based on the question prompt.
 def process_questions_with_rag(questions, chunks, client, model):
     """
@@ -768,8 +771,10 @@ def process_questions_with_rag(questions, chunks, client, model):
     print(f"\n✅ Constructed {len(prompts)} RAG prompts")
     return prompts
 
+
+# %%
 # === STEP 5: ANSWER GENERATION ===
-def call_ollama_llama(prompt, model="llama3", max_chars=300):
+def call_ollama_llama(prompt, model="llama3:latest", max_chars=300):
     """
     Call LLaMA via ollama for text-only questions.
     
@@ -797,7 +802,8 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8'
+            encoding='utf-8',
+            errors= "replace"
         )
         with open("prompt_llama.txt", "a") as f:
             f.write(full_prompt + "\n\n")
@@ -822,6 +828,8 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
         print(f"❌ Error calling ollama: {e}")
         return "Error: Unable to generate answer"
 
+
+# %%
 def call_ollama_llava(prompt, model="llava:7b", max_chars=300):
     """
     Call LLaVA via ollama for text and image questions.
@@ -844,7 +852,8 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            encoding='utf-8'
+            encoding='utf-8',
+            errors="replace"
         )
         
         with open("prompt_llava.txt", "a") as f:
@@ -868,6 +877,20 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
         print(f"❌ Error calling ollama llava: {e}")
         return 
 
+
+# %%
+def test_ollama_models():
+    result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+    available = result.stdout.lower()
+
+    return {
+        "llama3": "llama3" in available,   # catches llama3:latest / llama3:8b / llama3:70b
+        "llava": "llava" in available
+    }
+
+
+
+# %%
 # === STEP 6: ANSWERS TO FILE ===
 def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     """
@@ -889,14 +912,17 @@ def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     try:
         result = subprocess.run(["ollama", "--version"], 
                               capture_output=True, text=True, timeout=10)
+
+
         if result.returncode != 0:
             print("❌ Error: ollama is not available or not working properly")
             return []
         
         # Test available models
         models = test_ollama_models()
-        if not models['llama']:
-            print("⚠️  Warning: No LLaMA model found. You may need to run 'ollama pull llama3.2'")
+        
+        if not models.get('llama3'):
+            print("⚠️  Warning: No LLaMA model found. Run: ollama pull llama3")
         if not models['llava']:
             print("⚠️  Warning: No LLaVA model found. You may need to run 'ollama pull llava'")
             
@@ -961,61 +987,81 @@ def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     
     return answers
 
-def check_ollama_server():
-    """Check if Ollama server is running and accessible"""
-    try:
-        r = requests.get("http://localhost:11434/api/tags")
-        r.raise_for_status()
-        return True
-    except requests.RequestException as e:
-        print(f"❌ Ollama server not accessible: {e}")
-        print("   Please make sure Ollama is running (run 'ollama serve' in terminal)")
-        return False
 
-def test_ollama_models():
+# %%
+def save_similarity_results(evaluations, llama_avg, llava_avg, output_file="evaluation_results.txt"):
     """
-    Test if required ollama models are available.
+    Save similarity evaluation results to a file.
     
-    Returns:
-        dict: Status of available models
+    Args:
+        evaluations (dict): All evaluation data
+        llama_avg (float): LLaMA average similarity score
+        llava_avg (float): LLaVA average similarity score
+        output_file (str): Output file path
     """
-    print("🔍 Testing ollama model availability...")
-    
-    models = {
-        'llama': False,
-        'llava': False
-    }
-    
     try:
-        # Check available models
-        result = subprocess.run(["ollama", "list"], 
-                              capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            output = result.stdout.lower()
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("=== SEMANTIC SIMILARITY EVALUATION RESULTS ===\n\n")
             
-            # Check for LLaMA variants
-            if any(model in output for model in ['llama3.2:3b', 'llama', 'llama3', 'llama2']):
-                models['llama'] = True
-                print("   ✅ LLaMA model found")
-            else:
-                print("   ⚠️  No LLaMA model found")
-            
-            # Check for LLaVA
-            if any(model in output for model in ['llava:7b', 'llava']):
-                models['llava'] = True
-                print("   ✅ LLaVA model found")
-            else:
-                print("   ⚠️  No LLaVA model found")
+            # Write detailed results for each question
+            for i, (question, data) in enumerate(evaluations.items(), 1):
+                f.write(f"Question {i}: {data['question']}\n")
+                f.write("-" * 80 + "\n")
                 
-            print(f"   Available models: {result.stdout.strip()}")
-        else:
-            print(f"   ❌ Error listing models: {result.stderr}")
+                # LLaMA evaluation
+                f.write(f"LLaMA Answer: {data['llama_answer'][:100]}...\n")
+                f.write(f"LLaMA Similarity Score: {data['llama_similarity']:.4f}\n\n")
+                
+                # LLaVA evaluation
+                f.write(f"LLaVA Answer: {data['llava_answer'][:100]}...\n")
+                f.write(f"LLaVA Similarity Score: {data['llava_similarity']:.4f}\n")
+                
+                f.write("\n" + "="*80 + "\n\n")
             
+            # Write summary
+            f.write("=== SUMMARY ===\n\n")
+            f.write(f"LLaMA Average Similarity: {llama_avg:.4f}\n")
+            f.write(f"LLaVA Average Similarity: {llava_avg:.4f}\n")
+            f.write(f"Better Model: {'LLaVA' if llava_avg > llama_avg else 'LLaMA' if llama_avg > llava_avg else 'Tie'}\n")
+        
+        print(f"✅ Detailed evaluation results saved to {output_file}")
+        
     except Exception as e:
-        print(f"   ❌ Error testing ollama: {e}")
-    
-    return models
+        print(f"❌ Error saving evaluation results: {e}")
 
+
+# %%
+def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_chunks"):
+    """
+    Evaluate a single answer based on semantic similarity with the prompt.
+    
+    Args:
+        prompt (str): The RAG prompt containing question and context
+        answer (str): The model's answer
+        model_name (str): SentenceTransformer model name
+        
+    Returns:
+        float: Semantic similarity score between prompt and answer (0-1 scale)
+    """
+    # Handle error cases
+    if not answer or answer.startswith("Error:"):
+        return 0.0
+    
+    # Initialize model
+    model = SentenceTransformer(model_name)
+    
+    # Encode entire prompt and answer as single embeddings
+    prompt_embedding = model.encode([prompt], show_progress_bar=False)
+    answer_embedding = model.encode([answer], show_progress_bar=False)
+    
+    # Compute cosine similarity between the two single embeddings
+    similarity_matrix = cosine_similarity(prompt_embedding, answer_embedding)
+    similarity_score = similarity_matrix[0][0]  # Extract the single similarity value
+    
+    return float(similarity_score)
+
+
+# %%
 def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="all-MiniLM-L6-v2"):
     """
     Evaluate answers from both LLaMA and LLaVA models using semantic similarity.
@@ -1105,79 +1151,9 @@ def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="al
         
     print(f"✅ Evaluated {len(evaluations)} questions")    
     return evaluations
-    
-
-def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_chunks"):
-    """
-    Evaluate a single answer based on semantic similarity with the prompt.
-    
-    Args:
-        prompt (str): The RAG prompt containing question and context
-        answer (str): The model's answer
-        model_name (str): SentenceTransformer model name
-        
-    Returns:
-        float: Semantic similarity score between prompt and answer (0-1 scale)
-    """
-    # Handle error cases
-    if not answer or answer.startswith("Error:"):
-        return 0.0
-    
-    # Initialize model
-    model = SentenceTransformer(model_name)
-    
-    # Encode entire prompt and answer as single embeddings
-    prompt_embedding = model.encode([prompt], show_progress_bar=False)
-    answer_embedding = model.encode([answer], show_progress_bar=False)
-    
-    # Compute cosine similarity between the two single embeddings
-    similarity_matrix = cosine_similarity(prompt_embedding, answer_embedding)
-    similarity_score = similarity_matrix[0][0]  # Extract the single similarity value
-    
-    return float(similarity_score)
 
 
-def save_similarity_results(evaluations, llama_avg, llava_avg, output_file="evaluation_results.txt"):
-    """
-    Save similarity evaluation results to a file.
-    
-    Args:
-        evaluations (dict): All evaluation data
-        llama_avg (float): LLaMA average similarity score
-        llava_avg (float): LLaVA average similarity score
-        output_file (str): Output file path
-    """
-    try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("=== SEMANTIC SIMILARITY EVALUATION RESULTS ===\n\n")
-            
-            # Write detailed results for each question
-            for i, (question, data) in enumerate(evaluations.items(), 1):
-                f.write(f"Question {i}: {data['question']}\n")
-                f.write("-" * 80 + "\n")
-                
-                # LLaMA evaluation
-                f.write(f"LLaMA Answer: {data['llama_answer'][:100]}...\n")
-                f.write(f"LLaMA Similarity Score: {data['llama_similarity']:.4f}\n\n")
-                
-                # LLaVA evaluation
-                f.write(f"LLaVA Answer: {data['llava_answer'][:100]}...\n")
-                f.write(f"LLaVA Similarity Score: {data['llava_similarity']:.4f}\n")
-                
-                f.write("\n" + "="*80 + "\n\n")
-            
-            # Write summary
-            f.write("=== SUMMARY ===\n\n")
-            f.write(f"LLaMA Average Similarity: {llama_avg:.4f}\n")
-            f.write(f"LLaVA Average Similarity: {llava_avg:.4f}\n")
-            f.write(f"Better Model: {'LLaVA' if llava_avg > llama_avg else 'LLaMA' if llama_avg > llava_avg else 'Tie'}\n")
-        
-        print(f"✅ Detailed evaluation results saved to {output_file}")
-        
-    except Exception as e:
-        print(f"❌ Error saving evaluation results: {e}")
-
-
+# %%
 def main():
     """
     Main function to execute the RAG pipeline steps
@@ -1251,6 +1227,14 @@ def main():
         return chunks, client, model, questions, rag_prompts, answers, evaluation_results
     
     return chunks, client, model, questions, rag_prompts, answers
-    
+
+
+# %%
+
+# %%
 if __name__ == "__main__":
     main()
+
+# %%
+
+# %%
