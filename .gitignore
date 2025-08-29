@@ -3,8 +3,11 @@ __pycache__/
 answers.txt
 prompt_llama.txt
 prompt_llava.txt
+both_models_answers.txt
 all_metadata.json
 extracted_images/
 test.py
+sync.ps1
 page.txt
 main.py
+.jupytext

@@ -8,7 +8,7 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.17.2
 #   kernelspec:
-#     display_name: Python 3 (ipykernel)
+#     display_name: venv
 #     language: python
 #     name: python3
 # ---
@@ -33,6 +33,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchAny
 from sklearn.metrics.pairwise import cosine_similarity
 import uuid
+_OCR_READER = None
 
 
 # %%
@@ -195,6 +196,16 @@ def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
 
 
 # %%
+def get_ocr_reader():
+    """Singleton pattern to create reader only once"""
+    global _OCR_READER
+    if _OCR_READER is None:
+        print("Initializing EasyOCR reader (this may take a moment)...")
+        _OCR_READER = easyocr.Reader(['en'])
+    return _OCR_READER
+
+
+# %%
 def ocr_text_extraction (page):
     """
     Extract text from a page using OCR.
@@ -204,31 +215,35 @@ def ocr_text_extraction (page):
     Returns:
         str: The extracted text
     """
-    # Page extraction pre - processing and cleaning:
-    pix = page.get_pixmap(dpi=300)
-    img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-    if pix.n == 4:
-        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-    elif pix.n == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    
-    img = cv2.GaussianBlur(img, (3, 3), 0)
-    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-    
-    if img.ndim == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)  # or COLOR_RGBA2GRAY if needed
+    try:
+        reader = get_ocr_reader()
+        # Page extraction pre - processing and cleaning:
+        pix = page.get_pixmap(dpi=300)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+        if pix.n == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif pix.n == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        img = cv2.GaussianBlur(img, (3, 3), 0)
+        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        if img.ndim == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)  # or COLOR_RGBA2GRAY if needed
 
-    _, img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Text extraction:
-    reader = easyocr.Reader(['en'])
-    # Tries two angles: 0 and 90 and provide the most confident result. 
-    # We need to find the best angle for the page. the rotation info should try the angles that it set to, 
-    # but the results are not accurate as rotating the page through the page.set_rotation(90) of fitz.
-    ocr_results = reader.readtext(img, rotation_info=[0, 90])
-    ocr_text = " ".join([result[1] for result in ocr_results])
-    return ocr_text
-
+        _, img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Text extraction:
+        reader = easyocr.Reader(['en'])
+        # Tries two angles: 0 and 90 and provide the most confident result. 
+        # We need to find the best angle for the page. the rotation info should try the angles that it set to, 
+        # but the results are not accurate as rotating the page through the page.set_rotation(90) of fitz.
+        ocr_results = reader.readtext(img, rotation_info=[0, 90])
+        ocr_text = " ".join([result[1] for result in ocr_results])
+        return ocr_text
+    except Exception as e:
+        print(f"Error in OCR: {e}")
+        return ""
 
 
 # %%
