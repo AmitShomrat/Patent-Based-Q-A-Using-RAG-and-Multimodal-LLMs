@@ -85,7 +85,62 @@ def add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path
 
 
 # %%
-def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
+
+# %%
+def get_ocr_reader():
+    """Singleton pattern to create reader only once"""
+    global _OCR_READER
+    if _OCR_READER is None:
+        print("Initializing EasyOCR reader (this may take a moment)...")
+        _OCR_READER = easyocr.Reader(['en'])
+    return _OCR_READER
+
+
+# %%
+def ocr_text_extraction (page, image_indicator=False):
+    """
+    Extract text from a page using OCR.
+    Args:
+        page (fitz.Page): The page to extract the text from
+    
+    Returns:
+        str: The extracted text
+    """
+    try:
+        reader = get_ocr_reader()
+        # Page extraction pre - processing and cleaning:
+        pix = page.get_pixmap(dpi=300)
+        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+        if pix.n == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        elif pix.n == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        img = cv2.GaussianBlur(img, (3, 3), 0)
+        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        if img.ndim == 3:
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)  # or COLOR_RGBA2GRAY if needed
+
+        _, img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Text extraction:
+        # Tries two angles: 0 and 90 and provide the most confident result. 
+        # We need to find the best angle for the page. the rotation info should try the angles that it set to, 
+        # but the results are not accurate as rotating the page through the page.set_rotation(90) of fitz.
+        if image_indicator:
+            ocr_results = reader.readtext(img, rotation_info=[0, 90])
+        else:
+            ocr_results = reader.readtext(img)
+        ocr_text = " ".join([result[1] for result in ocr_results])
+        return ocr_text
+    except Exception as e:
+        print(f"Error in OCR: {e}")
+        return ""
+
+
+# %%
+def sheet_descriptions(page, image_path, page_num, model="llava:7b", max_chars=300):
     """
     Convert an image to text using Llava via subprocess.
     Args:
@@ -101,9 +156,12 @@ def sheet_descriptions(image_path, page_num, model="llava:7b", max_chars=300):
     if not os.path.exists(image_path):
         print(f"❌ Image file not found: {image_path}")
         return None
+    image_text = ocr_text_extraction(page, image_indicator=True)
     prompt = (
         f"Image: {image_path}\n"
+        f"Image text: {image_text}\n"
         "You are an OCR-style diagram transcriber.\n"
+        "Fit the image text with the digram description in the right places.\n"
         "Analyze the image and output ONLY in this format:\n"
         "Type: [Flowchart / Directed Graph / UML Diagram]\n"
         "NODES:\n"
@@ -187,63 +245,12 @@ def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
         image_path = os.path.join(output_dir, image_filename)
         with open(image_path, 'wb') as f:
             f.write(img_data)
-        all_metadata[pdf_path]['chunks'].append(sheet_descriptions(image_path, page_num + 1))
+        all_metadata[pdf_path]['chunks'].append(sheet_descriptions(page, image_path, page_num + 1))
     except Exception as e:
         print(f"Error converting image chunk: {e}")
         return False
 
     return True
-
-
-# %%
-def get_ocr_reader():
-    """Singleton pattern to create reader only once"""
-    global _OCR_READER
-    if _OCR_READER is None:
-        print("Initializing EasyOCR reader (this may take a moment)...")
-        _OCR_READER = easyocr.Reader(['en'])
-    return _OCR_READER
-
-
-# %%
-def ocr_text_extraction (page):
-    """
-    Extract text from a page using OCR.
-    Args:
-        page (fitz.Page): The page to extract the text from
-    
-    Returns:
-        str: The extracted text
-    """
-    try:
-        reader = get_ocr_reader()
-        # Page extraction pre - processing and cleaning:
-        pix = page.get_pixmap(dpi=300)
-        img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-        if pix.n == 4:
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        elif pix.n == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
-        img = cv2.GaussianBlur(img, (3, 3), 0)
-        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        
-        if img.ndim == 3:
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)  # or COLOR_RGBA2GRAY if needed
-
-        _, img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        # Text extraction:
-        reader = easyocr.Reader(['en'])
-        # Tries two angles: 0 and 90 and provide the most confident result. 
-        # We need to find the best angle for the page. the rotation info should try the angles that it set to, 
-        # but the results are not accurate as rotating the page through the page.set_rotation(90) of fitz.
-        ocr_results = reader.readtext(img, rotation_info=[0, 90])
-        ocr_text = " ".join([result[1] for result in ocr_results])
-        return ocr_text
-    except Exception as e:
-        print(f"Error in OCR: {e}")
-        return ""
 
 
 # %%
@@ -329,7 +336,7 @@ def save_chunks_metadata(chunks, metadata_file="all_metadata.json"):
     existing_data = {}
     if os.path.exists(metadata_file):
         try:
-            with open(metadata_file, 'r', encoding='utf-8') as f:
+            with open(metadata_file, 'r', encoding='utf-8', errors='replace') as f:
                 existing_data = json.load(f)
             print(f"Loaded existing data from {metadata_file}")
         except (json.JSONDecodeError, Exception) as e:
@@ -340,7 +347,7 @@ def save_chunks_metadata(chunks, metadata_file="all_metadata.json"):
     existing_data.update(chunks)
     
     # Save combined data
-    with open(metadata_file, 'w', encoding='utf-8') as f:
+    with open(metadata_file, 'w', encoding='utf-8', errors='replace') as f:
         json.dump(existing_data, f, indent=2, ensure_ascii=False)
         
     print(f"Metadata saved to {metadata_file}")
@@ -360,12 +367,12 @@ def load_chunks_metadata(metadata_file="all_metadata.json"):
     if not os.path.exists(metadata_file):
         # Create empty JSON file if it doesn't exist
         print(f"Creating new metadata file: {metadata_file}")
-        with open(metadata_file, 'w', encoding='utf-8') as f:
+        with open(metadata_file, 'w', encoding='utf-8', errors='replace') as f:
             json.dump({}, f, indent=2)
         return []
     
     # Context manager form - file always closed even if error
-    with open(metadata_file, 'r', encoding='utf-8') as f:
+    with open(metadata_file, 'r', encoding='utf-8', errors='replace') as f:
         chunks = json.load(f)
     
     print(f"Loaded {len(chunks)} groups of chunks from {metadata_file}")
@@ -477,7 +484,7 @@ def load_questions(questions_file="questions.txt"):
     count_hidden = 0
     questions = []
     try:
-        with open(questions_file, 'r', encoding='utf-8') as f:
+        with open(questions_file, 'r', encoding='utf-8', errors='replace') as f:
             for line_num, line in enumerate(f, 1):
                 question = line.strip()
                 if question == "[[HIDDEN]]":
@@ -751,9 +758,9 @@ def process_questions_with_rag(questions, chunks, client, model):
     print(f"Processing {len(questions)} questions...")
     
     # Clear prompt files at the start of each run
-    with open("prompt_llama.txt", "w") as f:
+    with open("prompt_llama.txt", "w", encoding='utf-8', errors='replace') as f:
         f.write("")  # Clear the file
-    with open("prompt_llava.txt", "w") as f:
+    with open("prompt_llava.txt", "w", encoding='utf-8', errors='replace') as f:
         f.write("")  # Clear the file
     
     prompts = []
@@ -820,7 +827,7 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             encoding='utf-8',
             errors= "replace"
         )
-        with open("prompt_llama.txt", "a") as f:
+        with open("prompt_llama.txt", "a", encoding='utf-8', errors='replace') as f:
             f.write(full_prompt + "\n\n")
         # Send prompt and get response
         stdout, stderr = process.communicate(input=full_prompt, timeout=60)
@@ -871,7 +878,7 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             errors="replace"
         )
         
-        with open("prompt_llava.txt", "a") as f:
+        with open("prompt_llava.txt", "a", encoding='utf-8', errors='replace') as f:
             f.write(full_prompt + "\n\n")
 
         stdout, stderr = process.communicate(input=full_prompt, timeout=120)
@@ -987,7 +994,7 @@ def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
     
     # Save answers to file
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
             for ans_data in answers:
                 f.write(f"Question {ans_data['question_number']}: {ans_data['question']}\n")
                 f.write(f"Answer LLaMA ({ans_data['char_count_llama']} chars):\n{ans_data['answer_llama']}\n")
@@ -1015,7 +1022,7 @@ def save_similarity_results(evaluations, llama_avg, llava_avg, output_file="eval
         output_file (str): Output file path
     """
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
             f.write("=== SEMANTIC SIMILARITY EVALUATION RESULTS ===\n\n")
             
             # Write detailed results for each question
@@ -1133,11 +1140,11 @@ def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="al
     print(f"LLaVA Average Similarity: {llava_avg:.4f}")
     
     # Save results to file
-    save_similarity_results(evaluations, llama_avg, llava_avg, output_file)
+    save_similarity_results(evaluations, llama_avg, llava_avg, output_file="evaluation_results.txt")
     
     # Write best answers to answers.txt
     try:
-        with open("answers.txt", "w", encoding='utf-8') as f:
+        with open("answers.txt", "w", encoding='utf-8', errors='replace') as f:
             f.write("=== BEST ANSWERS BASED ON SIMILARITY SCORES ===\n\n")
             
             for i, (question, evaluation_data) in enumerate(evaluations.items(), 1):
