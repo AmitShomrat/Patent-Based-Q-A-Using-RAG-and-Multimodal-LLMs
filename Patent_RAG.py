@@ -35,6 +35,26 @@ from sklearn.metrics.pairwise import cosine_similarity
 import uuid
 _OCR_READER = None
 
+# ---- CUDA bring-up (run once, top of notebook) ----
+import sys, torch
+
+# If you have multiple GPUs, pick one. Otherwise leave unset.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
+# Make console/file I/O UTF-8 everywhere (prevents Windows cp1255 issues)
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+os.environ["PYTHONIOENCODING"] = "utf-8"
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Torch CUDA available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("CUDA device:", torch.cuda.get_device_name(0))
+    torch.set_float32_matmul_precision("high")  # PyTorch 2.x GEMM speedup
+
 
 # %%
 # === STEP 1: CHUNKING ===
@@ -85,14 +105,12 @@ def add_text_chunk(text_splitter, text_content, page_num, all_metadata, pdf_path
 
 
 # %%
-
-# %%
 def get_ocr_reader():
     """Singleton pattern to create reader only once"""
     global _OCR_READER
     if _OCR_READER is None:
         print("Initializing EasyOCR reader (this may take a moment)...")
-        _OCR_READER = easyocr.Reader(['en'])
+        _OCR_READER = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
     return _OCR_READER
 
 
@@ -400,14 +418,14 @@ def create_vector_store(chunks, model_name="all-MiniLM-L6-v2", collection_name="
 
     # Initialize SentenceTransformer
     print(f"Loading SentenceTransformer model: {model_name}")
-    model = SentenceTransformer(model_name)
+    model = SentenceTransformer(model_name, device=device.type)
     
     # Extract text content for encoding
     texts = [chunk['content'] for chunk in chunks]
     
     # Create embeddings
     print("Creating embeddings for all text and image chunks...")
-    embeddings = model.encode(texts, show_progress_bar=True)
+    embeddings = model.encode(texts, show_progress_bar=True, convert_to_tensor=True, device=device)
     vector_size = embeddings.shape[1]
     print(f"Created embeddings: {embeddings.shape[0]} vectors of size {vector_size}")
     
@@ -536,7 +554,7 @@ def retrieve_relevant_chunks(question, client, model, collection_name="patent_ch
                                 }
     """
     # Convert question to embedding
-    question_embedding = model.encode([question])
+    question_embedding = model.encode([question], convert_to_tensor=True, device=device).detach().cpu().numpy()
 
     # Search for similar chunks in Qdrant (with vectors) - using query_points (newer API)
     search_results = client.query_points(
@@ -1073,8 +1091,8 @@ def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_
     model = SentenceTransformer(model_name)
     
     # Encode entire prompt and answer as single embeddings
-    prompt_embedding = model.encode([prompt], show_progress_bar=False)
-    answer_embedding = model.encode([answer], show_progress_bar=False)
+    prompt_embedding = model.encode([prompt], show_progress_bar=False, convert_to_tensor=True, device=device)
+    answer_embedding = model.encode([answer], show_progress_bar=False, convert_to_tensor=True, device=device)
     
     # Compute cosine similarity between the two single embeddings
     similarity_matrix = cosine_similarity(prompt_embedding, answer_embedding)
@@ -1182,7 +1200,7 @@ def main():
     """
     # TODO: add stoper for the entire process
     # pdf switch
-    pdf_path = "US11960514.pdf"
+    pdf_path = "US6285999.pdf"
     
     # Check if patent PDF exists
     if not os.path.exists(pdf_path):
