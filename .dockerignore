@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# App usage
+answers.txt
+prompt_llama.txt
+prompt_llava.txt
+both_models_answers.txt
+evaluation_results.txt
+all_metadata.json
+extracted_images/
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+README.md
+
+# Jupyter notebooks (optional - remove if you want to include them)
+*.ipynb
+
+# Large files that might not be needed in container
+*.zip
+*.tar.gz
