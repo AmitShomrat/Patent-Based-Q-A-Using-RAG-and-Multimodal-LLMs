@@ -1,5 +1,5 @@
 # Use NVIDIA CUDA base image with Python
-FROM nvidia/cuda:13.0.0-cudnn-devel-ubuntu24.04
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-devel
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -37,8 +37,8 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies (skip upgrading system packages)
-RUN pip3 install --no-cache-dir -r requirements.txt --break-system-packages
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt || true
 
 # Copy application files
 COPY . .
@@ -46,12 +46,12 @@ COPY . .
 # Create directory for models and data
 RUN mkdir -p /app/models /app/data
 
-# Start Ollama service and download models at build time
-RUN ollama serve
-RUN sleep 15 && \
+# Start Ollama service and download models in a single RUN command
+RUN ollama serve & \
+    sleep 15 && \
     ollama pull llama3:latest && \
     ollama pull llava:7b && \
-    echo "✅ Models downloaded successfully"
+    pkill ollama
 
 # Expose port (adjust if your app uses a different port)
 EXPOSE 8000
