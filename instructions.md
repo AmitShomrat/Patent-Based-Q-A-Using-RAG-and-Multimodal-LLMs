@@ -16,7 +16,7 @@ The application consists of:
 
 ### Base Image
 ```dockerfile
-FROM nvidia/cuda:13.0.0-cudnn-devel-ubuntu24.04
+FROM pytorch/pytorch:2.2.2-cuda12.1-cudnn8-devel
 ```
 
 **Specifications:**
@@ -179,7 +179,21 @@ docker logs <container_id>
 ## Security Considerations
 
 ### Container Security
-- **Non-root User**: Run application as non-privileged user
+- **Non-root User**: Run application as non-privileged. 
+   followed the docker post installation steps. 
+   basically we add a group by: 
+   ```bash
+
+   sudo groupadd docker 
+
+   ```
+
+   then adding the user by:
+
+   ```bash 
+
+   sudo usrmod -aG docker $USER
+user
 - **Image Scanning**: Regular vulnerability scanning
 - **Dependency Updates**: Keep dependencies updated
 - **Network Security**: Restrict container network access
@@ -188,3 +202,38 @@ docker logs <container_id>
 - **Local Processing**: All processing occurs within container
 - **No External Calls**: Models run locally without internet dependency
 - **Data Isolation**: Proper volume mounting and cleanup
+
+
+container run but failed at evaluation part:
+the cosine_similarity of sklearn expected numpy arreys (embeddings of prompt and answer), instead got Pytorch tensors, seince we use device='cuda' now... , so we had to convert it to .cpu().numpy(), cannot convert Pytorch tensors directly.
+
+After installing nvidia drivers and docker cuda toolkit we had to modify the daemon.json to use the Default Runtime as nvidia instead of runc:
+
+sudo bash -c 'cat >/etc/docker/daemon.json' <<'JSON'
+{
+  "default-runtime": "nvidia",
+  "runtimes": {
+    "nvidia": { "path": "nvidia-container-runtime", "runtimeArgs": [] }
+  }
+}
+JSON
+
+differences between running CUDA from host in general vs cuda base image: 
+The host lack of:
+   - CUDA runtime libraries;
+   /usr/local/cuda/lib64/
+   ├── libcudart.so.12.1.105    # CUDA runtime
+   ├── libcublas.so.12.1.3.52   # CUDA BLAS
+   ├── libcurand.so.10.3.2.106  # CUDA random
+   ├── libcudnn.so.8.9.2.26     # cuDNN
+   ├── libcufft.so.11.0.2.54    # CUDA FFT
+   └── libcusolver.so.11.4.5.107 # CUDA solver
+   - CUDA Headers and Development Files
+   /usr/local/cuda/include/
+   ├── cuda_runtime.h
+   ├── cublas_v2.h
+   ├── cudnn.h
+   └── ...
+
+Next create FastAPI server.
+
