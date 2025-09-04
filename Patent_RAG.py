@@ -272,7 +272,7 @@ def add_image_chunk(page, page_num, all_metadata, output_dir, pdf_path):
 
 
 # %%
-def extract_text_and_images_from_patent(pdf_path, output_dir="extracted_images"):
+def extract_text_and_images_from_patent(pdf_path, output_dir="rag_outputs/extracted_images"):
     """
     Extract text and images from a patent PDF file.
     
@@ -350,6 +350,7 @@ def save_chunks_metadata(chunks, metadata_file="all_metadata.json"):
         chunks (dict): Dictionary with PDF path as key and chunk data as value
         metadata_file (str): Path to save the metadata file
     """
+    metadata_file = os.path.join("rag_outputs", metadata_file)
     # Load existing data if file exists
     existing_data = {}
     if os.path.exists(metadata_file):
@@ -382,6 +383,8 @@ def load_chunks_metadata(metadata_file="all_metadata.json"):
     Returns:
         list: List of chunk dictionaries
     """
+    metadata_file = os.path.join("rag_outputs", metadata_file)
+
     if not os.path.exists(metadata_file):
         # Create empty JSON file if it doesn't exist
         print(f"Creating new metadata file: {metadata_file}")
@@ -776,9 +779,9 @@ def process_questions_with_rag(questions, chunks, client, model):
     print(f"Processing {len(questions)} questions...")
     
     # Clear prompt files at the start of each run
-    with open("prompt_llama.txt", "w", encoding='utf-8', errors='replace') as f:
+    with open("rag_outputs/prompt_llama.txt", "w", encoding='utf-8', errors='replace') as f:
         f.write("")  # Clear the file
-    with open("prompt_llava.txt", "w", encoding='utf-8', errors='replace') as f:
+    with open("rag_outputs/prompt_llava.txt", "w", encoding='utf-8', errors='replace') as f:
         f.write("")  # Clear the file
     
     prompts = []
@@ -845,7 +848,7 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             encoding='utf-8',
             errors= "replace"
         )
-        with open("prompt_llama.txt", "a", encoding='utf-8', errors='replace') as f:
+        with open("rag_outputs/prompt_llama.txt", "a", encoding='utf-8', errors='replace') as f:
             f.write(full_prompt + "\n\n")
         # Send prompt and get response
         stdout, stderr = process.communicate(input=full_prompt, timeout=60)
@@ -896,7 +899,7 @@ Please provide a concise answer based ONLY on the provided context. Do not use e
             errors="replace"
         )
         
-        with open("prompt_llava.txt", "a", encoding='utf-8', errors='replace') as f:
+        with open("rag_outputs/prompt_llava.txt", "a", encoding='utf-8', errors='replace') as f:
             f.write(full_prompt + "\n\n")
 
         stdout, stderr = process.communicate(input=full_prompt, timeout=120)
@@ -932,7 +935,7 @@ def test_ollama_models():
 
 # %%
 # === STEP 6: ANSWERS TO FILE ===
-def generate_answers(rag_prompts, output_file="both_models_answers.txt"):
+def generate_answers(rag_prompts, output_file="rag_outputs/both_models_answers.txt"):
     """
     Generate answers for all questions using ollama (LLaMA/LLaVA).
     
@@ -1094,15 +1097,19 @@ def evaluate_single_answer(prompt, answer, model_name, collection_name="prompts_
     prompt_embedding = model.encode([prompt], show_progress_bar=False, convert_to_tensor=True, device=device)
     answer_embedding = model.encode([answer], show_progress_bar=False, convert_to_tensor=True, device=device)
     
+    # Move tensors to CPU and convert to numpy arrays for scikit-learn compatibility
+    prompt_embedding_cpu = prompt_embedding.cpu().numpy()
+    answer_embedding_cpu = answer_embedding.cpu().numpy()
+    
     # Compute cosine similarity between the two single embeddings
-    similarity_matrix = cosine_similarity(prompt_embedding, answer_embedding)
+    similarity_matrix = cosine_similarity(prompt_embedding_cpu, answer_embedding_cpu)
     similarity_score = similarity_matrix[0][0]  # Extract the single similarity value
     
     return float(similarity_score)
 
 
 # %%
-def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="all-MiniLM-L6-v2"):
+def answers_eval(rag_prompts, answers, output_file="rag_outputs/answers.txt", model_name="all-MiniLM-L6-v2"):
     """
     Evaluate answers from both LLaMA and LLaVA models using semantic similarity.
     
@@ -1158,7 +1165,7 @@ def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="al
     print(f"LLaVA Average Similarity: {llava_avg:.4f}")
     
     # Save results to file
-    save_similarity_results(evaluations, llama_avg, llava_avg, output_file="evaluation_results.txt")
+    save_similarity_results(evaluations, llama_avg, llava_avg, output_file="rag_outputs/evaluation_results.txt")
     
     # Write best answers to answers.txt
     try:
@@ -1194,13 +1201,16 @@ def answers_eval(rag_prompts, answers, output_file="answers.txt", model_name="al
 
 
 # %%
-def main():
+def main(pdf_path: str = "US6285999.pdf"):
     """
     Main function to execute the RAG pipeline steps
     """
     # TODO: add stoper for the entire process
+    
     # pdf switch
-    pdf_path = "US6285999.pdf"
+    # pdf_path = pdf_path
+
+    os.makedirs("rag_outputs", exist_ok=True)
     
     # Check if patent PDF exists
     if not os.path.exists(pdf_path):
@@ -1266,7 +1276,7 @@ def main():
         evaluation_results = answers_eval(rag_prompts, answers)
         return chunks, client, model, questions, rag_prompts, answers, evaluation_results
     
-    return chunks, client, model, questions, rag_prompts, answers
+    # return chunks, client, model, questions, rag_prompts, answers
 
 
 # %%
