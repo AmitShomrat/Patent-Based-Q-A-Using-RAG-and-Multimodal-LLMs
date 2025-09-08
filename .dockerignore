@@ -4,6 +4,7 @@
 
 # App usage
 rag_outputs/
+rag_inputs/
 
 # Python
 __pycache__
