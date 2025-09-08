@@ -238,18 +238,26 @@ The host lack of:
    ├── cudnn.h
    └── ...
 
-Next create FastAPI server with POST enpoint that invoke main().
-   - learn about passing data from client ( Body / BaseModel).
+✅ Next create FastAPI server with POST enpoint that invoke main().
+    - learn about passing data from client ( Body / BaseModel) Body uses directly the HTTP request data and BaseModel used for building stracts or classes of Data.
 
 Check installation instruction ( official nvidia drivers installation, cuda container toolkit )
 Make patent consume inputs from rag_inputs dir.
-Try running Server from the container.
+✅ Try running Server from the container.
 
-Server Start: 
-   fastapi dev Server_RAG.py
+Server Start and distribute to all network interfaces: 
+   fastapi dev --host 0.0.0.0 --port 8000 Server_RAG.py
 
 Checking client POST request:
    curl -X POST "http://127.0.0.1:8000/process_patent" -H "Content-Type: application/json" -d '{"pdf_path": "US6285999.pdf"}'
+
+
+Next mission is to mount Next.js UI app. Create a page with launching pdf files and writing questions from the user Selecting the name of the processed patent. and a button to start which will invoke main function with the relevant inputs.
+   - for that we need to create an rag_input dir and use it as a shared volume from the container .. s.t the User upload data and the container utilizes it.
+   - Config this Volume in Dockerfile and learn how do the app should use it ..
+   - Init the Next.js and make all UI necessities.
+   - Test that inputs actually upload the requested assets.
+   - Connect Next.js Client to the Server.
 
 ## Docker Networking and Port Mapping
 
