@@ -40,18 +40,18 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt || true
 
-# Copy application files
-COPY . .
-
 # Create directory for models and data
 RUN mkdir -p /app/models /app/data
 
 # Start Ollama service and download models in a single RUN command
 RUN ollama serve & \
-    sleep 15 && \
-    ollama pull llama3:latest && \
-    ollama pull llava:7b && \
-    pkill ollama
+sleep 15 && \
+ollama pull llama3:latest && \
+ollama pull llava:7b && \
+pkill ollama
+
+# Copy application files
+COPY . .
 
 # Expose port (adjust if your app uses a different port)
 EXPOSE 8000
@@ -65,7 +65,7 @@ ollama serve &\n\
 sleep 5\n\
 \n\
 # Run the main application\n\
-python Patent_RAG.py' > /app/start.sh && chmod +x /app/start.sh
+fastapi dev --host 0.0.0.0 --port 8000 Server_RAG.py' > /app/start.sh && chmod +x /app/start.sh
 
 # Set default command
 CMD ["/app/start.sh"]

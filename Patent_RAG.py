@@ -33,6 +33,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue, MatchAny
 from sklearn.metrics.pairwise import cosine_similarity
 import uuid
+import logging
+
+
 _OCR_READER = None
 
 # ---- CUDA bring-up (run once, top of notebook) ----
@@ -40,6 +43,7 @@ import sys, torch
 
 # If you have multiple GPUs, pick one. Otherwise leave unset.
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
+
 
 # Make console/file I/O UTF-8 everywhere (prevents Windows cp1255 issues)
 try:
@@ -1169,7 +1173,7 @@ def answers_eval(rag_prompts, answers, output_file="rag_outputs/answers.txt", mo
     
     # Write best answers to answers.txt
     try:
-        with open("answers.txt", "w", encoding='utf-8', errors='replace') as f:
+        with open("rag_outputs/answers.txt", "w", encoding='utf-8', errors='replace') as f:
             f.write("=== BEST ANSWERS BASED ON SIMILARITY SCORES ===\n\n")
             
             for i, (question, evaluation_data) in enumerate(evaluations.items(), 1):
@@ -1263,20 +1267,21 @@ def main(pdf_path: str = "US6285999.pdf"):
     else:
         print("⚠️  No prompts to process - skipping answer generation")
     
+    # Optional: Run evaluation if answers were generated
+    evaluation_results = []
+    if answers and rag_prompts:
+        print(f"\n=== Step 6: Running Answer Evaluation ===")
+        evaluation_results = answers_eval(rag_prompts, answers)
+    
     print(f"\n=== Pipeline Complete ===")
     print(f"✅ Step 1: Patent chunked into {len(chunks)} pieces")
     print(f"✅ Step 2: {len(text_chunks)} text chunks vectorized and stored")
     print(f"✅ Step 3: {len(questions)} questions loaded and ready")
     print(f"✅ Step 4: {len(rag_prompts)} RAG prompts constructed")
     print(f"✅ Step 5: {len(answers)} answers generated and saved")
+    print(f"✅ Step 6: {len(evaluation_results)} evaluation results saved")
     
-    # Optional: Run evaluation if answers were generated
-    if answers and rag_prompts:
-        print(f"\n=== Optional: Running Answer Evaluation ===")
-        evaluation_results = answers_eval(rag_prompts, answers)
-        return chunks, client, model, questions, rag_prompts, answers, evaluation_results
-    
-    # return chunks, client, model, questions, rag_prompts, answers
+    return chunks, client, model, questions, rag_prompts, answers, evaluation_results
 
 
 # %%

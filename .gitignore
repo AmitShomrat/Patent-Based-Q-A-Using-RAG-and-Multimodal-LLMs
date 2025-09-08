@@ -1,12 +1,6 @@
 venv/
 __pycache__/
-answers.txt
-prompt_llama.txt
-prompt_llava.txt
-both_models_answers.txt
-evaluation_results.txt
-all_metadata.json
-extracted_images/
+rag_outputs/
 test.py
 sync.ps1
 page.txt

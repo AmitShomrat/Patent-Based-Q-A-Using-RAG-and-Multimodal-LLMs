@@ -3,13 +3,7 @@
 .gitignore
 
 # App usage
-answers.txt
-prompt_llama.txt
-prompt_llava.txt
-both_models_answers.txt
-evaluation_results.txt
-all_metadata.json
-extracted_images/
+rag_outputs/
 
 # Python
 __pycache__
