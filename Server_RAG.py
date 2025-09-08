@@ -14,19 +14,10 @@ def process_patent(pdf_path: str = Body(..., embed=True)): # 3 dots of Body made
     """
     try:
         # Call main function expecting no exception
-        chunks, client, model, questions, rag_prompts, answers, evaluation_results = Patent_RAG.main(pdf_path)
+        Patent_RAG.main(pdf_path)
         return {"status": "success",
                 "status_code": 200,
-                "message": "Patent processed successfully",
-                "data": {
-                    "chunks": chunks,
-                    "client": client,
-                    "model": model,
-                    "questions": questions,
-                    "rag_prompts": rag_prompts,
-                    "answers": answers,
-                    "evaluation_results": evaluation_results
-                }
+                "message": "Patent processed successfully"
                 }
     except Exception as e:
         # Return error response
