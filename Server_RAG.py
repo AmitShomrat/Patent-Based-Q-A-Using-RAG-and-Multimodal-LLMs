@@ -4,7 +4,14 @@ import Patent_RAG
 app = FastAPI()
 
 @app.post("/process_patent")
-def process_patent(pdf_path: str = Body(..., embed=True)):
+def process_patent(pdf_path: str = Body(..., embed=True)): # 3 dots of Body made the arg mandatory use None for optional.
+    """
+        Process a patent document and return the results in a structured format.
+        Args:
+            pdf_path: The path to the patent document.
+        Returns:
+            A dictionary containing the results of the patent processing.
+    """
     try:
         # Call main function expecting no exception
         chunks, client, model, questions, rag_prompts, answers, evaluation_results = Patent_RAG.main(pdf_path)
