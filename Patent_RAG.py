@@ -292,8 +292,10 @@ def extract_text_and_images_from_patent(pdf_path, output_dir="rag_outputs/extrac
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    pdf_path = os.path.join("rag_inputs", pdf_path)
 
     doc = fitz.open(pdf_path)
+    pdf_path = pdf_path.replace("rag_inputs/", "")
     total_pages = len(doc)
     all_metadata = {pdf_path: {
                       "chunks": []}}
@@ -498,7 +500,7 @@ def load_questions(questions_file="questions.txt"):
         list: List of question strings
     """
     print(f"\n=== Step 3: Loading Questions ===")
-    
+    questions_file = os.path.join("rag_inputs", questions_file)
     # Check if questions file exists
     if not os.path.exists(questions_file):
         print(f"❌ Error: Questions file '{questions_file}' not found!")
@@ -1217,7 +1219,7 @@ def main(pdf_path: str = "US6285999.pdf"):
     os.makedirs("rag_outputs", exist_ok=True)
     
     # Check if patent PDF exists
-    if not os.path.exists(pdf_path):
+    if not os.path.exists(os.path.join("rag_inputs", pdf_path)):
         print(f"Error: {pdf_path} not found in the current directory.")
         return
     
