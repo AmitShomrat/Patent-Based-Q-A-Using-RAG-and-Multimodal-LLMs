@@ -412,4 +412,29 @@ services:
 
 > **⚠️ Critical Point**: Without `-p 8000:8000`, your container's port 8000 would not be accessible from outside, even if you have `EXPOSE 8000` in the Dockerfile.
 
+## Client side - Next.js
+### npm/nodejs/npx - installation:
 
+ ```bash
+   # Install nvm if you don't have it
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+
+   # Reload your shell
+   source ~/.bashrc
+
+   # Install and use Node.js 20 (LTS)
+   nvm install 20
+   nvm use 20
+   nvm alias default 20
+   ```
+### Project next.js initialization:
+   From the WrkDir run:
+   ``` bash
+      npx create-next-app@latest app-name --yes
+      
+      cd app-name 
+
+      npm run dev
+
+   ```
+This will start the app on localhost:3000 by default the dev refers to dev attribute from the package.json.
